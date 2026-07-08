@@ -102,6 +102,18 @@ export class Radiant6CanadaEncoder {
     ]);
   }
 
+  basketSuspend(args: { tx: number }): string {
+    return this.eventLine(1003, [['TransactionNumber', args.tx]]);
+  }
+
+  /** EventId 1004 — resume. `storedTx` is the suspended transaction being recalled. */
+  basketResume(args: { tx: number; storedTx?: number }): string {
+    return this.eventLine(1004, [
+      ['TransactionNumber', args.tx],
+      ...(args.storedTx !== undefined ? [['StoredTransactionNumber', args.storedTx] as Field] : []),
+    ]);
+  }
+
   itemAdd(args: {
     tx: number;
     lineNumber: number;

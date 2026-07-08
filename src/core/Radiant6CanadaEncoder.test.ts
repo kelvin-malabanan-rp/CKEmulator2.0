@@ -24,6 +24,24 @@ describe('Radiant6CanadaEncoder — VJ session events', () => {
     expect(line).toContain('EventId=1002');
     expect(line).toContain('TransactionType=Sales,TransactionCompletionType=Completed');
   });
+
+  it('basketSuspend (1003) carries the transaction number', () => {
+    expect(enc().basketSuspend({ tx: 7 })).toBe(
+      'EventId=1003,TerminalNumber=1,EventTime=2023-01-01T00:00:00.000,TransactionNumber=7\r\n',
+    );
+  });
+
+  it('basketResume (1004) carries the transaction number', () => {
+    expect(enc().basketResume({ tx: 7 })).toBe(
+      'EventId=1004,TerminalNumber=1,EventTime=2023-01-01T00:00:00.000,TransactionNumber=7\r\n',
+    );
+  });
+
+  it('basketResume (1004) carries StoredTransactionNumber when the suspended tx is known', () => {
+    expect(enc().basketResume({ tx: 8, storedTx: 7 })).toBe(
+      'EventId=1004,TerminalNumber=1,EventTime=2023-01-01T00:00:00.000,TransactionNumber=8,StoredTransactionNumber=7\r\n',
+    );
+  });
 });
 
 describe('Radiant6CanadaEncoder — item lifecycle VJ events', () => {

@@ -50,6 +50,17 @@ describe('round-trip: VJ encoder → CKPlayer2.0 Radiant6CanadaMessageParser', (
     expect(vjActions(enc.basketStarted({ tx: 1 }))).toContain('BASKET_START');
   });
 
+  it('basketSuspend decodes to BASKET_SUSPEND', () => {
+    expect(vjActions(enc.basketSuspend({ tx: 7 }))).toContain('BASKET_SUSPEND');
+  });
+
+  it('basketResume decodes to BASKET_RESUME carrying the suspended tx', () => {
+    const events = Radiant6CanadaMessageParser.parseLine(SOURCE, enc.basketResume({ tx: 8, storedTx: 7 }), vjCtx())!;
+    const resume = events.find((e) => e.action === 'BASKET_RESUME')!;
+    expect(resume).toBeDefined();
+    expect(resume.data.lastTransactId).toBe(7);
+  });
+
   it('itemAdd decodes to SCAN_RECEIVED + ITEM_ADDED + POLEDISP_UPDATED with correct fields', () => {
     const ctx = vjCtx();
     const events = Radiant6CanadaMessageParser.parseLine(
