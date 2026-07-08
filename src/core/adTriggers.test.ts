@@ -90,6 +90,38 @@ describe('isInteractiveTemplate', () => {
   });
 });
 
+describe('completer condition types', () => {
+  it('collects conditiontype values from completer conditions', () => {
+    const out = extractTriggersCompleters({
+      id: 1,
+      name: 'Silent Deal',
+      adcompleters: [
+        { adcompleterconditions: [{ conditiontype: 'injectItem', itemcode: '111' }] },
+        { adcompleterconditions: [{ conditiontype: 'xFor', items: ['222'] }] },
+      ],
+    });
+    expect(out.completerConditionTypes).toEqual(['injectItem', 'xFor']);
+    expect(out.silentCapable).toBe(true);
+  });
+
+  it('silentCapable is true for addDiscount, false otherwise', () => {
+    const mk = (t: string): boolean =>
+      extractTriggersCompleters({
+        id: 2,
+        adcompleters: [{ adcompleterconditions: [{ conditiontype: t, itemcode: '1' }] }],
+      }).silentCapable;
+    expect(mk('addDiscount')).toBe(true);
+    expect(mk('addItem')).toBe(false);
+    expect(mk('completePromo')).toBe(false);
+  });
+
+  it('handles ads with no completers', () => {
+    const out = extractTriggersCompleters({ id: 3, name: 'x' });
+    expect(out.completerConditionTypes).toEqual([]);
+    expect(out.silentCapable).toBe(false);
+  });
+});
+
 describe('orderAds', () => {
   it('sorts by name case-insensitively without mutating input', () => {
     const input: AdTriggersCompleters[] = [

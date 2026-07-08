@@ -28,9 +28,14 @@ export interface AdTriggersCompleters {
   template: string;
   triggers: AdItem[];
   completers: AdItem[];
+  /** Distinct completer conditiontype values (e.g. 'injectItem', 'xFor'). */
+  completerConditionTypes: string[];
+  /** True when a completer can auto-inject with no cashier tap. */
+  silentCapable: boolean;
 }
 
 interface RawCondition {
+  conditiontype?: string;
   items?: Array<string | Record<string, unknown>>;
   upc?: string;
   itemcode?: string;
@@ -134,8 +139,14 @@ export function extractTriggersCompleters(ad: RawAdConfig): AdTriggersCompleters
     triggers.push(...itemsFromGroup(group, group.adtriggerconditions ?? []));
   }
   const completers: AdItem[] = [];
+  const types = new Set<string>();
   for (const group of ad.adcompleters ?? []) {
-    completers.push(...itemsFromGroup(group, group.adcompleterconditions ?? []));
+    const conditions = group.adcompleterconditions ?? [];
+    completers.push(...itemsFromGroup(group, conditions));
+    for (const cond of conditions) {
+      const type = str(cond.conditiontype);
+      if (type) types.add(type);
+    }
   }
   return {
     id: str(ad.id),
@@ -143,6 +154,8 @@ export function extractTriggersCompleters(ad: RawAdConfig): AdTriggersCompleters
     template: str(ad.templatename),
     triggers: dedupeByCode(triggers),
     completers: dedupeByCode(completers),
+    completerConditionTypes: [...types],
+    silentCapable: types.has('injectItem') || types.has('addDiscount'),
   };
 }
 
