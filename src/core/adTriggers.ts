@@ -179,3 +179,13 @@ export function orderAds(ads: AdTriggersCompleters[]): AdTriggersCompleters[] {
 export function orderManifest(ads: AdManifestEntry[]): AdManifestEntry[] {
   return [...ads].sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
 }
+
+/**
+ * Whether a raw ad doc is a legitimate ad rather than a config entry stored in
+ * the ads collection. Config entries have templatenames ending in "Config"
+ * (e.g. "Beat The Target Config", "Top 5 Promos Config").
+ */
+export function isLegitimateAd(ad: RawAdConfig): boolean {
+  const t = (ad.templatename ?? '').trim().toLowerCase();
+  return t !== '' && !t.endsWith('config');
+}
