@@ -60,7 +60,7 @@ describe('round-trip: VJ encoder → CKPlayer2.0 Radiant6CanadaMessageParser', (
     const actions = events.map((e) => e.action);
     expect(actions).toEqual(expect.arrayContaining(['SCAN_RECEIVED', 'ITEM_ADDED', 'POLEDISP_UPDATED']));
     const itemAdded = events.find((e) => e.action === 'ITEM_ADDED')!;
-    expect(itemAdded.data.code).toBe('049000000443');
+    expect(itemAdded.data.upc).toBe('049000000443');
     expect(itemAdded.data.description).toBe('Coke');
     expect(itemAdded.data.price).toBeCloseTo(1.69, 5);
   });
