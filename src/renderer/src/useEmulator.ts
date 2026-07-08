@@ -21,6 +21,7 @@ import type { GlobalInitConfig } from '../../core/globalInit';
 import { quickKeyColor, type QuickKeyColor, type QuickKeyEntry, type QuickKeyFile } from '../../core/quickkeys';
 import {
   extractTriggersCompleters,
+  isLegitimateAd,
   orderManifest,
   type AdTriggersCompleters,
   type AdManifestEntry,
@@ -235,7 +236,10 @@ export function useEmulator(): {
 
       // Background-prefetch every ad's triggers/completers (throttled), so the
       // completer dots + template labels fill in without per-page waits.
+      // Config entries (no templatename) are evicted from the manifest — only
+      // legitimate ads with a real template are kept.
       const ids = manifest.map((m) => m.id);
+      const configIds = new Set<string>();
       let next = 0;
       const worker = async (): Promise<void> => {
         while (next < ids.length && adsRunRef.current === run) {
@@ -244,6 +248,10 @@ export function useEmulator(): {
             const r = await window.emulator.loadAdDetail({ ...req, id });
             if (adsRunRef.current !== run) return;
             if (r.ok && r.ad) {
+              if (!isLegitimateAd(r.ad)) {
+                configIds.add(id);
+                continue;
+              }
               const detail = extractTriggersCompleters(r.ad);
               setAdDetails((prev) => (prev[id] ? prev : { ...prev, [id]: detail }));
             }
@@ -253,7 +261,14 @@ export function useEmulator(): {
         }
       };
       await Promise.all(Array.from({ length: 5 }, () => worker()));
-      if (adsRunRef.current === run) logSys(`Ad details loaded (${manifest.length})`);
+      if (adsRunRef.current === run) {
+        if (configIds.size > 0) {
+          setAdManifest((prev) => prev.filter((m) => !configIds.has(m.id)));
+          logSys(`Ad details loaded — removed ${configIds.size} config entry(s), ${manifest.length - configIds.size} legit ad(s) kept`);
+        } else {
+          logSys(`Ad details loaded (${manifest.length})`);
+        }
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setAdsStatus({ loading: false, error: msg });
@@ -275,6 +290,11 @@ export function useEmulator(): {
         });
         if (!res.ok || !res.ad) {
           logSys(`Ad detail error (${id}): ${res.error}`);
+          return null;
+        }
+        if (!isLegitimateAd(res.ad)) {
+          setAdManifest((prev) => prev.filter((m) => m.id !== id));
+          logSys(`Removed config entry "${id}" from ads list (not a real ad)`);
           return null;
         }
         const detail = extractTriggersCompleters(res.ad);
