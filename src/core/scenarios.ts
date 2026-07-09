@@ -74,9 +74,9 @@ export function builtinScenarios(p: ScenarioParams): Scenario[] {
       id: 'loyalty-signin',
       name: 'Loyalty sign-in',
       description:
-        'Send a bare loyalty card swipe — watch the player switch from ads to the signed-in member experience.',
+        'Scan an item, then swipe the loyalty card mid-transaction — watch the player switch to the signed-in member experience.',
       registerTypes: ['radiant6-canada', 'radiant6-us'],
-      steps: [{ kind: 'loyalty', cardNumber: p.loyaltyCard }],
+      steps: [{ kind: 'scan', code: p.itemCode }, gap, { kind: 'loyalty', cardNumber: p.loyaltyCard }],
     },
     {
       id: 'upc-as-coupon',
