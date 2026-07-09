@@ -304,6 +304,19 @@ const STEP_GLYPH: Record<StepStatus, string> = {
   skipped: '⏭',
 };
 
+/** Short lane tags shown on each scenario row; the active lane's tag is accented. */
+const REGISTER_TAG: Record<RegisterType, string> = {
+  'radiant6-canada': 'CA',
+  'radiant6-us': 'US',
+  bulloch: 'BUL',
+};
+
+const REGISTER_TAG_TITLE: Record<RegisterType, string> = {
+  'radiant6-canada': 'Radiant6 Canada',
+  'radiant6-us': 'Radiant6 US',
+  bulloch: 'Bulloch (Canada, pole-only)',
+};
+
 /** Compact per-step trail: `n/m kind glyph [detail]` — used live and for the last result. */
 function StepRows({ steps }: { steps: StepResult[] }): JSX.Element {
   return (
@@ -421,6 +434,13 @@ function Scenarios({
                 >
                   ▶ {s.name}
                 </button>
+                <span className="sctags">
+                  {s.registerTypes.map((t) => (
+                    <span key={t} className={`sctag${t === registerType ? ' on' : ''}`} title={REGISTER_TAG_TITLE[t]}>
+                      {REGISTER_TAG[t]}
+                    </span>
+                  ))}
+                </span>
                 {active && (
                   <button className="scstop" onClick={r.cancel}>
                     Stop

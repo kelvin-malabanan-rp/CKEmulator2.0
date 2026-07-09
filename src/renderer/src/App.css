@@ -144,6 +144,9 @@ h3 { margin: 9px 0 5px; font-size: 13px; text-transform: uppercase; letter-spaci
 .scstop { background: #8a3b32; color: #fff; border: 0; border-radius: 5px; padding: 7px 12px; font-size: 12px; cursor: pointer; flex-shrink: 0; }
 .scstop:hover { background: #a04a3f; }
 .scname { flex: 1; min-width: 0; font-size: 12px; color: #cdd2db; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sctags { display: flex; gap: 3px; flex-shrink: 0; }
+.sctag { font-size: 9px; font-weight: 700; letter-spacing: .5px; color: #7e8696; background: #2a2e37; border: 1px solid #363b45; border-radius: 3px; padding: 2px 4px; }
+.sctag.on { color: #fff; background: #2d6cdf; border-color: #2d6cdf; }
 .steplist { display: flex; flex-direction: column; gap: 2px; }
 .steprow { display: flex; align-items: baseline; gap: 6px; font-size: 11px; color: #aab; min-width: 0; }
 .steprow .stepnum { color: #7e8696; font-family: ui-monospace, Menlo, monospace; flex-shrink: 0; }
