@@ -11,7 +11,7 @@
  *   - Tax/balance are pole-authoritative in Canada — never emitting VJ
  *     EventId 1005 (subtotal) or 1020 (tax) is Canada policy enforced by
  *     RegisterSession (radiant6-canada mode). The encoder itself provides
- *     `subtotal` (1005) and `tax` (1020) for the radiant6-us mode (Task 10).
+ *     `subtotal` (1005) and `tax` (1020) for the radiant6-us mode.
  *   - Cash rounding emits EventId 1022 Description=Arrondir.
  *   - EasyPay loyalty emits EventId 1024 (the 12-digit-UPC discriminator runs
  *     player-side; the encoder just carries the card number).

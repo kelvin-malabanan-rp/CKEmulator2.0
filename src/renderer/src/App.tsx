@@ -309,7 +309,7 @@ function StepRows({ steps }: { steps: StepResult[] }): JSX.Element {
   return (
     <div className="steplist">
       {steps.map((s, i) => (
-        <div key={i} className="step-row">
+        <div key={i} className="steprow">
           <span className="stepnum">{i + 1}/{steps.length}</span>
           <span className="stepkind">{s.step.kind}</span>
           <span className={`stepglyph ${s.status}`}>{STEP_GLYPH[s.status]}</span>
@@ -436,7 +436,7 @@ function Scenarios({
         {strayRunning && (
           <div className="scrow">
             <div className="scrowhead">
-              <span className="scname">{r.running}</span>
+              <span className="scname">{r.runningName ?? r.running}</span>
               <button className="scstop" onClick={r.cancel}>
                 Stop
               </button>
@@ -447,7 +447,7 @@ function Scenarios({
         {strayResult && (
           <div className="scrow">
             <div className="scrowhead">
-              <span className="scname">{strayResult.id}</span>
+              <span className="scname">{strayResult.name}</span>
             </div>
             <RunOutcome result={strayResult.result} />
           </div>
@@ -546,10 +546,16 @@ function App(): JSX.Element {
         <button onClick={() => void e.connect()}>Connect</button>
         <button onClick={() => void e.disconnect()}>Disconnect</button>
         <span className="spacer" />
-        <div className="locale">
-          <button className={locale === 'en' ? 'on' : ''} onClick={() => e.setLocale('en')}>EN-CA</button>
-          <button className={locale === 'fr' ? 'on' : ''} onClick={() => e.setLocale('fr')}>FR-CA</button>
-        </div>
+        {/* US lanes are en-US only — hide the toggle there. Switching to US
+            while fr is already coherent: the session rebuild carries locale
+            through RegisterSession.setLocale, which ignores 'fr' in US mode,
+            so the fresh snapshot reads 'en'. */}
+        {e.config.registerType !== 'radiant6-us' && (
+          <div className="locale">
+            <button className={locale === 'en' ? 'on' : ''} onClick={() => e.setLocale('en')}>EN-CA</button>
+            <button className={locale === 'fr' ? 'on' : ''} onClick={() => e.setLocale('fr')}>FR-CA</button>
+          </div>
+        )}
       </header>
 
       <header className="bar creds">
