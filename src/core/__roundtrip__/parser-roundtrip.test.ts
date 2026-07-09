@@ -102,6 +102,28 @@ describe('round-trip: VJ encoder → CKPlayer2.0 Radiant6CanadaMessageParser', (
     expect(loyalty.data.loyaltyOrUpc?.discountCardNumber).toBe('8018782603800034999992');
   });
 
+  it('US-mode subtotal (1005) / tax (1020) are gracefully ignored by the CA parser', () => {
+    // The CA parser has no 1005/1020 handlers: unknown EventIds fall through
+    // and return an empty event array (no throw, no null — asserted via
+    // parseLine directly, since vjActions() would mask a null).
+    expect(Radiant6CanadaMessageParser.parseLine(SOURCE, enc.subtotal({ tx: 3, amountCents: 1716 }), vjCtx())).toEqual([]);
+    expect(Radiant6CanadaMessageParser.parseLine(SOURCE, enc.tax({ tx: 3, amountCents: 43 }), vjCtx())).toEqual([]);
+    expect(vjActions(enc.subtotal({ tx: 3, amountCents: 1716 }))).toEqual([]);
+    expect(vjActions(enc.tax({ tx: 3, amountCents: 43 }))).toEqual([]);
+  });
+
+  it('totals-carrying basketEnd (US mode) still decodes to BASKET_END (extra fields ignored)', () => {
+    const actions = vjActions(
+      enc.basketEnd({
+        tx: 3,
+        type: 'Sales',
+        completion: 'Completed',
+        totals: { subtotalCents: 1716, taxCents: 43, totalCents: 1759 },
+      }),
+    );
+    expect(actions).toContain('BASKET_END');
+  });
+
   it('NEVER emits 1005/1020, so the parser never sees subtotal/tax on the VJ', () => {
     // The parser explicitly returns [] for these; our encoder never produces them.
     const lifecycle = [
