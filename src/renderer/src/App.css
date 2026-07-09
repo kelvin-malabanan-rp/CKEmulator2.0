@@ -189,6 +189,9 @@ h3 { margin: 9px 0 5px; font-size: 13px; text-transform: uppercase; letter-spaci
 
 .loghead { display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 2; background: #16181d; margin: -12px -12px 6px; padding: 12px 12px 6px; }
 .loghead button { background: #3a3f4a; padding: 3px 8px; font-size: 12px; }
+.loghead .tabs { display: flex; gap: 4px; }
+.loghead .tabs button { text-transform: uppercase; letter-spacing: .5px; font-weight: 600; color: #8b93a3; }
+.loghead .tabs button.on { background: #2d6cdf; color: #fff; }
 .log { font-family: ui-monospace, Menlo, monospace; font-size: 11px; }
 .logline { display: flex; gap: 6px; padding: 3px 0; border-bottom: 1px solid #20242b; align-items: baseline; }
 .logline code { white-space: pre-wrap; word-break: break-all; }

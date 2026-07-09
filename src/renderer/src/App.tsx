@@ -381,7 +381,6 @@ function Scenarios({
 
   return (
     <div className="scenarios">
-      <h3>Scenarios</h3>
       <div className="scparams">
         <label title="Loyalty card scenarios sign in with">
           Card
@@ -467,6 +466,15 @@ function App(): JSX.Element {
   // Tender/void only make sense with a live basket; disabled when empty so they
   // can't spawn stray transactions or be spammed.
   const hasItems = snapshot.lines.some((l) => !l.voided);
+
+  // Right column shows either the Wire Log or the Scenarios panel. Starting a
+  // run (incl. per-ad Silent ▶ from the left column) switches to Scenarios so
+  // the step ticker is visible.
+  const [rightTab, setRightTab] = useState<'log' | 'scenarios'>('log');
+  const running = r.running;
+  useEffect(() => {
+    if (running !== null) setRightTab('scenarios');
+  }, [running]);
 
   // Scenario knobs, persisted like the other r6ca.* localStorage settings.
   const [loyaltyCard, setLoyaltyCardState] = useState<string>(() => {
@@ -604,16 +612,6 @@ function App(): JSX.Element {
 
           <h3>Triggers &amp; Completers</h3>
           <TriggersCompleters e={e} r={r} params={params} />
-
-          <Scenarios
-            e={e}
-            r={r}
-            params={params}
-            loyaltyCard={loyaltyCard}
-            setLoyaltyCard={setLoyaltyCard}
-            stepGapMs={stepGapMs}
-            setStepGapMs={setStepGapMs}
-          />
         </section>
 
         <section className="center">
@@ -672,17 +670,36 @@ function App(): JSX.Element {
 
         <section className="right">
           <div className="loghead">
-            <h3>Wire Log</h3>
-            <button onClick={e.clearLog}>clear</button>
+            <div className="tabs">
+              <button className={rightTab === 'scenarios' ? 'on' : ''} onClick={() => setRightTab('scenarios')}>
+                Scenarios
+              </button>
+              <button className={rightTab === 'log' ? 'on' : ''} onClick={() => setRightTab('log')}>
+                Wire Log
+              </button>
+            </div>
+            {rightTab === 'log' && <button onClick={e.clearLog}>clear</button>}
           </div>
-          <div className="log">
-            {e.log.map((l) => (
-              <div key={l.id} className={`logline ${l.channel}`}>
-                <span className="tag">{l.channel.toUpperCase()}</span>
-                <code>{l.text}</code>
-              </div>
-            ))}
-          </div>
+          {rightTab === 'scenarios' ? (
+            <Scenarios
+              e={e}
+              r={r}
+              params={params}
+              loyaltyCard={loyaltyCard}
+              setLoyaltyCard={setLoyaltyCard}
+              stepGapMs={stepGapMs}
+              setStepGapMs={setStepGapMs}
+            />
+          ) : (
+            <div className="log">
+              {e.log.map((l) => (
+                <div key={l.id} className={`logline ${l.channel}`}>
+                  <span className="tag">{l.channel.toUpperCase()}</span>
+                  <code>{l.text}</code>
+                </div>
+              ))}
+            </div>
+          )}
         </section>
       </div>
     </div>
