@@ -92,6 +92,8 @@ export function useEmulator(): {
   loyalty: (cardNumber: string) => void;
   tender: (kind: TenderKind, amountCents?: number) => void;
   voidTicket: () => void;
+  suspend: () => void;
+  resume: () => void;
 } {
   const [config, setConfig] = useState<PosConfig>(DEFAULT_POS_CONFIG);
 
@@ -483,6 +485,8 @@ export function useEmulator(): {
       loyalty: (cardNumber: string) => dispatch(session.loyalty(cardNumber)),
       tender: (kind: TenderKind, amountCents?: number) => dispatch(session.tender(kind, amountCents)),
       voidTicket: () => dispatch(session.voidTicket()),
+      suspend: () => dispatch(session.suspend()),
+      resume: () => dispatch(session.resume()),
     }),
     [
       snapshot,
