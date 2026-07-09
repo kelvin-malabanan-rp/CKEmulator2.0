@@ -34,7 +34,7 @@ export interface Scenario {
   name: string;
   description: string;
   registerTypes: RegisterType[];
-  steps: ScenarioStep[];
+  steps: readonly ScenarioStep[];
 }
 
 /** Knobs the UI feeds into the builders (item codes, cards, pacing). */
@@ -187,7 +187,11 @@ export function scenarioForAd(ad: AdTriggersCompleters, p: ScenarioParams): Scen
     description: `Scan "${trigger.description ?? trigger.code}" and sign in — watch the player fire "${ad.name}" and inject its completer before the sale tenders.`,
     registerTypes: ['radiant6-canada'], // TODO(task 10): add 'radiant6-us'
     steps: [
-      { kind: 'scan', code: trigger.code, description: trigger.description },
+      {
+        kind: 'scan',
+        code: trigger.code,
+        ...(trigger.description !== undefined ? { description: trigger.description } : {}),
+      },
       gap,
       { kind: 'loyalty', cardNumber: p.loyaltyCard },
       {

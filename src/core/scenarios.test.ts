@@ -133,6 +133,13 @@ describe('scenarioForAd', () => {
     expect(s.steps[0]).toMatchObject({ kind: 'scan', description: 'Trigger Item' });
   });
 
+  it('omits description from the scan step and falls back to the code when the trigger has none', () => {
+    const s = scenarioForAd({ ...ad, triggers: [{ code: '111' }] }, params)!;
+    expect(s.steps[0].kind).toBe('scan');
+    expect('description' in s.steps[0]).toBe(false);
+    expect(s.description).toContain('"111"');
+  });
+
   it('omits expectCodes entirely when the ad has no completers', () => {
     const s = scenarioForAd({ ...ad, completers: [] }, params)!;
     const w = s.steps.find((st) => st.kind === 'waitForInject')!;
