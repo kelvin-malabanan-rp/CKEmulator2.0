@@ -207,7 +207,7 @@ function TriggersCompleters({
                   >
                     {busy === `${ad.id}:completers` ? '…' : 'Completers'}
                   </button>
-                  {detail?.silentCapable && detail.triggers.length > 0 && (
+                  {detail?.silentCapable && detail.triggers.length > 0 && e.config.registerType !== 'bulloch' && (
                     <button
                       className="tcbtn"
                       disabled={r.running !== null}

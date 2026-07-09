@@ -53,6 +53,18 @@ describe('RegisterSession', () => {
     expect(msgs.find((m) => m.data.includes('EventId=1024'))?.data).toContain('DiscountCardNumber=8018782603800034999992');
   });
 
+  it('loyalty-first opens the lane on the wire (1001 + 1009 precede 1024)', () => {
+    const s = new RegisterSession();
+    const msgs = s.loyalty('8018782603800034999992');
+    const ids = msgs.filter((m) => m.channel === 'vj').map((m) => /EventId=(\d+)/.exec(m.data)![1]);
+    expect(ids).toEqual(['1001', '1009', '1024']);
+    // A later add must not re-open the lane.
+    const addIds = s.addItem({ code: 'a', description: 'A', priceCents: 100 })
+      .filter((m) => m.channel === 'vj')
+      .map((m) => /EventId=(\d+)/.exec(m.data)![1]);
+    expect(addIds).toEqual(['1011']);
+  });
+
   it('cash-exact tender emits Arrondir rounding, tender, change, basketEnd and resets', () => {
     const s = new RegisterSession({ taxRateBps: 500 });
     s.addItem({ code: 'a', description: 'A', priceCents: 169 }); // total 177 → rounds to 175

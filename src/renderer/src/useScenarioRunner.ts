@@ -75,6 +75,21 @@ export function useScenarioRunner(e: ReturnType<typeof useEmulator>): {
       return;
     }
     const emu = emulatorRef.current;
+    if (!s.registerTypes.includes(emu.config.registerType)) {
+      console.log(`[Scenario] ✘ ${s.id} fail: not applicable to ${emu.config.registerType}`);
+      setProgress([]);
+      setLastResult({
+        id: s.id,
+        name: s.name,
+        result: {
+          verdict: 'fail',
+          steps: [
+            { step: s.steps[0], status: 'fail', detail: `not applicable to ${emu.config.registerType}`, elapsedMs: 0 },
+          ],
+        },
+      });
+      return;
+    }
     const connected =
       emu.config.registerType === 'bulloch'
         ? emu.status.pole === 'connected'

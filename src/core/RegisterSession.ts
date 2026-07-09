@@ -301,8 +301,9 @@ export class RegisterSession {
    */
   loyalty(cardNumber: string, cardId?: string): WireMessage[] {
     if (this.isBulloch) return [];
-    this.ensureStarted();
-    return [{ channel: 'vj', data: this.encoder.loyalty({ tx: this.tx, cardNumber, cardId }) }];
+    const messages = this.ensureStarted();
+    messages.push({ channel: 'vj', data: this.encoder.loyalty({ tx: this.tx, cardNumber, cardId }) });
+    return messages;
   }
 
   /** Suspend the in-flight basket (EventId 1003). Basket and tx are untouched. */
