@@ -66,6 +66,7 @@ export class RegisterSession {
   private basket: Basket;
   private tx: number;
   private started = false;
+  private suspended = false;
   locale: PosLocale = 'en';
 
   constructor(options: RegisterSessionOptions = {}) {
@@ -230,6 +231,7 @@ export class RegisterSession {
       this.basket = new Basket({ taxRateBps: this.taxRateBps });
       this.tx += 1;
       this.started = false;
+      this.suspended = false;
       return messages;
     }
     messages.push({ channel: 'vj', data: this.encoder.basketEnd({ tx: this.tx, type: 'Sales', completion: 'Cancelled' }) });
@@ -238,6 +240,7 @@ export class RegisterSession {
     messages.push(this.balanceMessage()); // pole balance now 0
     this.tx += 1;
     this.started = false;
+    this.suspended = false;
     return messages;
   }
 
@@ -249,6 +252,23 @@ export class RegisterSession {
     if (this.isBulloch) return [];
     this.ensureStarted();
     return [{ channel: 'vj', data: this.encoder.loyalty({ tx: this.tx, cardNumber, cardId }) }];
+  }
+
+  /** Suspend the in-flight basket (EventId 1003). Basket and tx are untouched. */
+  suspend(): WireMessage[] {
+    if (this.isBulloch || !this.started || this.suspended) return [];
+    this.suspended = true;
+    return [{ channel: 'vj', data: this.encoder.basketSuspend({ tx: this.tx }) }];
+  }
+
+  /** Recall a suspended basket (EventId 1004) and re-emit the pole balance. */
+  resume(): WireMessage[] {
+    if (this.isBulloch || !this.suspended) return [];
+    this.suspended = false;
+    return [
+      { channel: 'vj', data: this.encoder.basketResume({ tx: this.tx, storedTx: this.tx }) },
+      this.balanceMessage(),
+    ];
   }
 
   /**
@@ -284,6 +304,7 @@ export class RegisterSession {
       this.basket = new Basket({ taxRateBps: this.taxRateBps });
       this.tx += 1;
       this.started = false;
+      this.suspended = false;
       return messages;
     }
 
@@ -299,6 +320,7 @@ export class RegisterSession {
     this.basket = new Basket({ taxRateBps: this.taxRateBps });
     this.tx += 1;
     this.started = false;
+    this.suspended = false;
     return messages;
   }
 

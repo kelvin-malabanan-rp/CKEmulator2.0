@@ -93,6 +93,60 @@ describe('RegisterSession', () => {
   });
 });
 
+describe('RegisterSession — suspend/resume', () => {
+  it('emits 1003 then 1004 keeping the basket intact (radiant6)', () => {
+    const s = new RegisterSession();
+    s.addItem({ code: '1', description: 'A', priceCents: 100 });
+    const sus = s.suspend();
+    expect(sus).toHaveLength(1);
+    expect(sus[0].data).toContain('EventId=1003');
+    const res = s.resume();
+    expect(res[0].data).toContain('EventId=1004');
+    expect(s.snapshot().lines).toHaveLength(1); // basket kept
+  });
+
+  it('resume re-emits the pole balance and echoes the stored transaction', () => {
+    const s = new RegisterSession();
+    s.addItem({ code: '1', description: 'A', priceCents: 100 });
+    s.suspend();
+    const res = s.resume();
+    expect(res[0].data).toContain('StoredTransactionNumber=1');
+    expect(res.some((m) => m.channel === 'pole')).toBe(true);
+  });
+
+  it('suspend before any activity emits nothing', () => {
+    expect(new RegisterSession().suspend()).toEqual([]);
+  });
+
+  it('resume without a prior suspend emits nothing', () => {
+    const s = new RegisterSession();
+    s.addItem({ code: '1', description: 'A', priceCents: 100 });
+    expect(s.resume()).toEqual([]);
+  });
+
+  it('double-suspend emits nothing the second time', () => {
+    const s = new RegisterSession();
+    s.addItem({ code: '1', description: 'A', priceCents: 100 });
+    expect(s.suspend()).toHaveLength(1);
+    expect(s.suspend()).toEqual([]);
+  });
+
+  it('voidTicket clears a pending suspend so resume emits nothing', () => {
+    const s = new RegisterSession();
+    s.addItem({ code: '1', description: 'A', priceCents: 100 });
+    s.suspend();
+    s.voidTicket();
+    expect(s.resume()).toEqual([]);
+  });
+
+  it('is a no-op for bulloch', () => {
+    const s = new RegisterSession({ registerType: 'bulloch' });
+    s.addItem({ code: '1', description: 'A', priceCents: 100 });
+    expect(s.suspend()).toEqual([]);
+    expect(s.resume()).toEqual([]);
+  });
+});
+
 function poleDatas(messages: WireMessage[]): string[] {
   return messages.filter((m) => m.channel === 'pole').map((m) => m.data);
 }
