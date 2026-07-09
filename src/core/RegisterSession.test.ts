@@ -328,4 +328,13 @@ describe('RegisterSession — Bulloch (pole-only)', () => {
     expect(datas).toContain('[C200] Sale TRANS=000001 TOTAL=2.00 CHNG=3.00 TAX=0.00\n');
     expect(s.snapshot().tx).toBe(2);
   });
+
+  it('change math keeps CAD nickel rounding on non-nickel totals (regression)', () => {
+    // 202¢ @ 5% → tax 10 → exact total 212 → cash-rounds to 210; next-dollar
+    // tenders 300 so change is 90. TOTAL stays the exact 2.12.
+    const s = new RegisterSession({ registerType: 'bulloch', taxRateBps: 500 });
+    s.addItem({ code: '1', description: 'A', priceCents: 202 });
+    const datas = poleDatas(s.tender('next-dollar'));
+    expect(datas).toContain('[C200] Sale TRANS=000001 TOTAL=2.12 CHNG=0.90 TAX=0.10\n');
+  });
 });

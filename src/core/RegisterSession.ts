@@ -97,9 +97,13 @@ export class RegisterSession {
     return this.registerType === 'radiant6-us';
   }
 
-  /** Only Canadian cash rounds to the nearest nickel (Arrondir). */
+  /**
+   * CAD registers (radiant6-canada and bulloch) round cash to the nearest 5¢;
+   * only the US mode uses exact totals. Bulloch still emits no 1022 Arrondir
+   * VJ event (it has no VJ) — only its change math rounds.
+   */
   private get cashRounding(): boolean {
-    return this.registerType === 'radiant6-canada';
+    return this.registerType !== 'radiant6-us';
   }
 
   /** Running tax (1020) then subtotal (1005) — the legacy US order. */
