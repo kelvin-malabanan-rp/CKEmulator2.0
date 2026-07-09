@@ -37,6 +37,9 @@ export function useScenarioRunner(e: ReturnType<typeof useEmulator>): {
 
   // e.snapshot is React state captured at render time; expect steps need the
   // state as of the previous step, so read through a ref kept fresh on render.
+  // Because the ref refreshes in a passive effect (i.e. only after React
+  // re-renders), an expect step must follow a `wait` gap — an action step
+  // immediately followed by expect would read the pre-action snapshot.
   const snapshotRef = useRef<SessionSnapshot>(e.snapshot);
   useEffect(() => {
     snapshotRef.current = e.snapshot;
@@ -75,7 +78,14 @@ export function useScenarioRunner(e: ReturnType<typeof useEmulator>): {
         : emu.status.vj === 'connected';
     if (!connected) {
       console.log(`[Scenario] ✘ ${s.id} fail: lane not connected (${emu.config.registerType})`);
-      setLastResult({ id: s.id, result: { verdict: 'fail', steps: [] } });
+      setProgress([]);
+      setLastResult({
+        id: s.id,
+        result: {
+          verdict: 'fail',
+          steps: [{ step: s.steps[0], status: 'fail', detail: 'not connected', elapsedMs: 0 }],
+        },
+      });
       return;
     }
 
@@ -119,7 +129,7 @@ export function useScenarioRunner(e: ReturnType<typeof useEmulator>): {
 
     // Feed player injects to the runner for this run only. The useEmulator
     // onInject listener (which rings the completer up) stays subscribed too.
-    const unsubscribe = window.emulator.onInject((cmd) => runnerRef.current?.notifyInject(cmd));
+    const unsubscribe = window.emulator.onInject((cmd) => runner.notifyInject(cmd));
     try {
       const result = await runner.run(s);
       if (result.verdict === 'pass') {
