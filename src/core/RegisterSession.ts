@@ -52,7 +52,11 @@ export interface RegisterSessionOptions {
   operatorName?: string;
   startTx?: number;
   clock?: () => Date;
-  /** Wire protocol: 'radiant6-canada' (VJ + pole) or 'bulloch' (pole-only). */
+  /**
+   * Wire protocol: 'radiant6-canada' (VJ + pole, pole-authoritative totals),
+   * 'radiant6-us' (VJ + pole, VJ 1005/1020 totals, no cash rounding) or
+   * 'bulloch' (pole-only).
+   */
   registerType?: RegisterType;
 }
 

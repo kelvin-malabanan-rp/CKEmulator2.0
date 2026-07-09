@@ -547,9 +547,9 @@ function App(): JSX.Element {
         <button onClick={() => void e.disconnect()}>Disconnect</button>
         <span className="spacer" />
         {/* US lanes are en-US only — hide the toggle there. Switching to US
-            while fr is already coherent: the session rebuild carries locale
-            through RegisterSession.setLocale, which ignores 'fr' in US mode,
-            so the fresh snapshot reads 'en'. */}
+            while fr is active is already coherent: the session rebuild carries
+            locale through RegisterSession.setLocale, which ignores 'fr' in US
+            mode, so the fresh snapshot reads 'en'. */}
         {e.config.registerType !== 'radiant6-us' && (
           <div className="locale">
             <button className={locale === 'en' ? 'on' : ''} onClick={() => e.setLocale('en')}>EN-CA</button>
