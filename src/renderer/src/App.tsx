@@ -13,7 +13,9 @@ const QK_PER_PAGE = 9; // 3 columns × 3 rows
 const SCENARIO_CARD_KEY = 'r6ca.scenario.loyaltyCard';
 const SCENARIO_GAP_KEY = 'r6ca.scenario.stepGapMs';
 const SCENARIO_COUPON_KEY = 'r6ca.scenario.upcCoupon12';
-const DEFAULT_SCENARIO_CARD = '70846414251491703';
+// Valid CK loyalty format: 22 digits starting 8018 — the player's
+// getCKLoyaltyNumber rejects anything else before it ever calls login.
+const DEFAULT_SCENARIO_CARD = '8018782603900930000100';
 const DEFAULT_UPC_COUPON = '012345678905';
 const DEFAULT_STEP_GAP_MS = 750;
 
