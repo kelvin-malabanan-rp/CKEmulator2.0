@@ -14,6 +14,7 @@ describe('builtinScenarios', () => {
     const s = builtinScenarios(params).find((x) => x.id === 'silent-loyalty-injection');
     expect(s).toBeDefined();
     expect(s!.registerTypes).toContain('radiant6-canada');
+    expect(s!.registerTypes).toContain('radiant6-us');
     expect(s!.steps.map((st) => st.kind)).toEqual([
       'scan',
       'wait',
@@ -72,9 +73,9 @@ describe('builtinScenarios', () => {
     expect(s.registerTypes).toEqual(['bulloch']);
   });
 
-  it('edit-heavy-sale runs on both register types and ends with next-dollar tender', () => {
+  it('edit-heavy-sale runs on all register types and ends with next-dollar tender', () => {
     const s = builtinScenarios(params).find((x) => x.id === 'edit-heavy-sale')!;
-    expect(s.registerTypes).toEqual(['radiant6-canada', 'bulloch']);
+    expect(s.registerTypes).toEqual(['radiant6-canada', 'radiant6-us', 'bulloch']);
     const last = s.steps[s.steps.length - 1];
     expect(last).toMatchObject({ kind: 'tender', tenderKind: 'next-dollar' });
   });
@@ -125,7 +126,7 @@ describe('scenarioForAd', () => {
     const s = scenarioForAd(ad, params)!;
     expect(s.id).toBe('ad-42');
     expect(s.name).toBe('Ad: Deal');
-    expect(s.registerTypes).toEqual(['radiant6-canada']);
+    expect(s.registerTypes).toEqual(['radiant6-canada', 'radiant6-us']);
   });
 
   it('carries the trigger description onto the scan step', () => {

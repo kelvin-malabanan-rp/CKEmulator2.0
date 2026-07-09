@@ -88,6 +88,36 @@ export class RegisterSession {
     return this.registerType === 'bulloch';
   }
 
+  /**
+   * US Radiant6 is VJ-authoritative: it emits running tax (1020) + subtotal
+   * (1005) after every item mutation and stamps totals on basket end (1002).
+   * Canada is pole-authoritative and never sends these.
+   */
+  private get vjTotals(): boolean {
+    return this.registerType === 'radiant6-us';
+  }
+
+  /** Only Canadian cash rounds to the nearest nickel (Arrondir). */
+  private get cashRounding(): boolean {
+    return this.registerType === 'radiant6-canada';
+  }
+
+  /** Running tax (1020) then subtotal (1005) — the legacy US order. */
+  private vjTotalsMessages(): WireMessage[] {
+    return [
+      { channel: 'vj', data: this.encoder.tax({ tx: this.tx, amountCents: this.basket.taxCents() }) },
+      { channel: 'vj', data: this.encoder.subtotal({ tx: this.tx, amountCents: this.basket.subtotalCents() }) },
+    ];
+  }
+
+  /** Clear the lane state after a basket end (tender or void ticket). */
+  private resetForNextSale(): void {
+    this.basket = new Basket({ taxRateBps: this.taxRateBps });
+    this.tx += 1;
+    this.started = false;
+    this.suspended = false;
+  }
+
   /** A Bulloch `[C110]` item-add line carrying the running basket totals. */
   private bullochItemMessage(code: string, description: string, quantity: number, priceCents: number): WireMessage {
     return {
@@ -118,6 +148,8 @@ export class RegisterSession {
   }
 
   setLocale(locale: PosLocale): void {
+    // US lanes are en-US only — ignore attempts to switch to French.
+    if (this.registerType === 'radiant6-us' && locale !== 'en') return;
     this.locale = locale;
   }
 
@@ -163,6 +195,7 @@ export class RegisterSession {
         locale: this.locale,
       }),
     });
+    if (this.vjTotals) messages.push(...this.vjTotalsMessages());
     messages.push({ channel: 'pole', data: this.encoder.poleItem(li.quantity, li.description, li.unitPriceCents, this.locale) });
     messages.push(this.balanceMessage());
     return messages;
@@ -177,6 +210,7 @@ export class RegisterSession {
     this.basket.voidItem(lineNumber);
     return [
       { channel: 'vj', data: this.encoder.itemVoid({ tx: this.tx, lineNumber }) },
+      ...(this.vjTotals ? this.vjTotalsMessages() : []),
       this.balanceMessage(),
     ];
   }
@@ -198,6 +232,7 @@ export class RegisterSession {
     const extended = updated?.extendedCents() ?? 0;
     return [
       { channel: 'vj', data: this.encoder.qtyChange({ tx: this.tx, lineNumber, oldQuantity, newQuantity: quantity, extendedPriceCents: extended, locale: this.locale }) },
+      ...(this.vjTotals ? this.vjTotalsMessages() : []),
       this.balanceMessage(),
     ];
   }
@@ -215,6 +250,7 @@ export class RegisterSession {
     }
     return [
       { channel: 'vj', data: this.encoder.priceOverride({ tx: this.tx, lineNumber, newUnitPriceCents: priceCents, locale: this.locale }) },
+      ...(this.vjTotals ? this.vjTotalsMessages() : []),
       this.balanceMessage(),
     ];
   }
@@ -228,19 +264,26 @@ export class RegisterSession {
     const messages = this.ensureStarted();
     if (this.isBulloch) {
       messages.push({ channel: 'pole', data: this.bulloch.clearSale() });
-      this.basket = new Basket({ taxRateBps: this.taxRateBps });
-      this.tx += 1;
-      this.started = false;
-      this.suspended = false;
+      this.resetForNextSale();
       return messages;
     }
-    messages.push({ channel: 'vj', data: this.encoder.basketEnd({ tx: this.tx, type: 'Sales', completion: 'Cancelled' }) });
+    // Capture totals before the reset — the US 1002 Cancelled carries them
+    // too (legacy Radiant6RegisterEmulator.java:262).
+    const totals = this.vjTotals
+      ? { subtotalCents: this.basket.subtotalCents(), taxCents: this.basket.taxCents(), totalCents: this.basket.totalCents() }
+      : undefined;
+    messages.push({
+      channel: 'vj',
+      data: this.encoder.basketEnd({
+        tx: this.tx,
+        type: 'Sales',
+        completion: 'Cancelled',
+        ...(totals !== undefined ? { totals } : {}),
+      }),
+    });
 
-    this.basket = new Basket({ taxRateBps: this.taxRateBps });
+    this.resetForNextSale();
     messages.push(this.balanceMessage()); // pole balance now 0
-    this.tx += 1;
-    this.started = false;
-    this.suspended = false;
     return messages;
   }
 
@@ -279,15 +322,16 @@ export class RegisterSession {
   tender(kind: TenderKind, amountCents?: number): WireMessage[] {
     const messages = this.ensureStarted();
     const exactTotal = this.basket.totalCents();
-    const roundedTotal = this.basket.roundCashTotal();
+    // US cash has no nickel rounding — the due total stays the exact total.
+    const dueTotal = this.cashRounding ? this.basket.roundCashTotal() : exactTotal;
 
     let tendered: number;
-    if (kind === 'cash-exact') tendered = roundedTotal;
+    if (kind === 'cash-exact') tendered = dueTotal;
     else if (kind === 'next-dollar') tendered = this.basket.nextDollarCents();
-    else tendered = amountCents ?? roundedTotal;
+    else tendered = amountCents ?? dueTotal;
 
-    const change = Math.max(0, tendered - roundedTotal);
-    const roundingDelta = roundedTotal - exactTotal;
+    const change = Math.max(0, tendered - dueTotal);
+    const roundingDelta = dueTotal - exactTotal;
 
     if (this.isBulloch) {
       // Bulloch closes the sale with a single pole [C200] line (no VJ, no
@@ -301,12 +345,15 @@ export class RegisterSession {
           taxCents: this.basket.taxCents(),
         }),
       });
-      this.basket = new Basket({ taxRateBps: this.taxRateBps });
-      this.tx += 1;
-      this.started = false;
-      this.suspended = false;
+      this.resetForNextSale();
       return messages;
     }
+
+    // Capture totals before the reset — the US 1002 carries them (legacy
+    // Radiant6RegisterEmulator.java:296); Canada omits them.
+    const totals = this.vjTotals
+      ? { subtotalCents: this.basket.subtotalCents(), taxCents: this.basket.taxCents(), totalCents: exactTotal }
+      : undefined;
 
     if (roundingDelta !== 0) {
       messages.push({ channel: 'vj', data: this.encoder.rounding({ tx: this.tx, amountCents: roundingDelta, locale: this.locale }) });
@@ -314,13 +361,17 @@ export class RegisterSession {
     messages.push({ channel: 'vj', data: this.encoder.tender({ tx: this.tx, amountCents: tendered, mopDescription: 'Cash', locale: this.locale }) });
     messages.push({ channel: 'pole', data: this.encoder.poleChange(change, this.locale) });
     messages.push({ channel: 'vj', data: this.encoder.change({ tx: this.tx, amountCents: change, locale: this.locale }) });
-    messages.push({ channel: 'vj', data: this.encoder.basketEnd({ tx: this.tx, type: 'Sales', completion: 'Completed' }) });
+    messages.push({
+      channel: 'vj',
+      data: this.encoder.basketEnd({
+        tx: this.tx,
+        type: 'Sales',
+        completion: 'Completed',
+        ...(totals !== undefined ? { totals } : {}),
+      }),
+    });
 
-    // Reset for the next sale.
-    this.basket = new Basket({ taxRateBps: this.taxRateBps });
-    this.tx += 1;
-    this.started = false;
-    this.suspended = false;
+    this.resetForNextSale();
     return messages;
   }
 

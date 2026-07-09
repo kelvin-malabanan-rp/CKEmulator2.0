@@ -60,7 +60,7 @@ export function builtinScenarios(p: ScenarioParams): Scenario[] {
       name: 'Silent loyalty injection',
       description:
         'Scan a trigger item then sign in with loyalty — watch the player auto-inject the completer with no cashier tap before the sale tenders.',
-      registerTypes: ['radiant6-canada'], // TODO(task 10): add 'radiant6-us'
+      registerTypes: ['radiant6-canada', 'radiant6-us'],
       steps: [
         { kind: 'scan', code: p.itemCode },
         gap,
@@ -75,7 +75,7 @@ export function builtinScenarios(p: ScenarioParams): Scenario[] {
       name: 'Loyalty sign-in',
       description:
         'Send a bare loyalty card swipe — watch the player switch from ads to the signed-in member experience.',
-      registerTypes: ['radiant6-canada'], // TODO(task 10): add 'radiant6-us'
+      registerTypes: ['radiant6-canada', 'radiant6-us'],
       steps: [{ kind: 'loyalty', cardNumber: p.loyaltyCard }],
     },
     {
@@ -83,7 +83,7 @@ export function builtinScenarios(p: ScenarioParams): Scenario[] {
       name: 'UPC sent as loyalty card',
       description:
         'Send a 12-digit DiscountCardNumber — watch the player treat it as a coupon UPC ($0 item), not a loyalty sign-in (LIFTBAU-565).',
-      registerTypes: ['radiant6-canada'], // TODO(task 10): add 'radiant6-us'
+      registerTypes: ['radiant6-canada', 'radiant6-us'],
       steps: [{ kind: 'loyalty', cardNumber: p.upcCoupon12 }],
     },
     {
@@ -104,7 +104,7 @@ export function builtinScenarios(p: ScenarioParams): Scenario[] {
       name: 'Manual completer tap',
       description:
         'Scan a trigger item then wait — the cashier must tap the offer in the player to inject the completer within a minute.',
-      registerTypes: ['radiant6-canada'], // TODO(task 10): add 'radiant6-us'
+      registerTypes: ['radiant6-canada', 'radiant6-us'],
       steps: [
         { kind: 'scan', code: p.itemCode },
         { kind: 'waitForInject', timeoutMs: MANUAL_INJECT_TIMEOUT_MS },
@@ -115,7 +115,7 @@ export function builtinScenarios(p: ScenarioParams): Scenario[] {
       name: 'Edit-heavy sale',
       description:
         'Scan two items, change quantity and price, void a line, then tender to the next dollar — watch the player basket track every edit and the change due.',
-      registerTypes: ['radiant6-canada', 'bulloch'], // TODO(task 10): add 'radiant6-us'
+      registerTypes: ['radiant6-canada', 'radiant6-us', 'bulloch'],
       steps: [
         { kind: 'scan', code: p.itemCode },
         { kind: 'scan', code: p.itemCode2 },
@@ -159,7 +159,7 @@ export function builtinScenarios(p: ScenarioParams): Scenario[] {
       name: 'Suspend / resume ticket',
       description:
         'Scan an item, suspend the ticket, resume it, then tender — watch the player clear the basket on suspend and restore it on resume.',
-      registerTypes: ['radiant6-canada'], // TODO(task 10): add 'radiant6-us'
+      registerTypes: ['radiant6-canada', 'radiant6-us'],
       steps: [
         { kind: 'scan', code: p.itemCode },
         { kind: 'suspend' },
@@ -185,7 +185,7 @@ export function scenarioForAd(ad: AdTriggersCompleters, p: ScenarioParams): Scen
     id: `ad-${ad.id}`,
     name: `Ad: ${ad.name}`,
     description: `Scan "${trigger.description ?? trigger.code}" and sign in — watch the player fire "${ad.name}" and inject its completer before the sale tenders.`,
-    registerTypes: ['radiant6-canada'], // TODO(task 10): add 'radiant6-us'
+    registerTypes: ['radiant6-canada', 'radiant6-us'],
     steps: [
       {
         kind: 'scan',

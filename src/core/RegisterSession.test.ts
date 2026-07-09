@@ -147,6 +147,109 @@ describe('RegisterSession — suspend/resume', () => {
   });
 });
 
+describe('RegisterSession — radiant6-us', () => {
+  const us = (): RegisterSession => new RegisterSession({ registerType: 'radiant6-us' });
+
+  it('emits 1020 then 1005 after each item mutation', () => {
+    const msgs = us().addItem({ code: '1', description: 'A', priceCents: 202 });
+    expect(eventIds(msgs)).toEqual(['1001', '1009', '1011', '1020', '1005']);
+  });
+
+  it('voidLine / setQuantity / setPrice each append 1020 then 1005', () => {
+    const s = us();
+    s.addItem({ code: '1', description: 'A', priceCents: 202 });
+    s.addItem({ code: '2', description: 'B', priceCents: 100 });
+    const mutations: Array<[string, () => WireMessage[]]> = [
+      ['1014', () => s.setQuantity(1, 3)],
+      ['1013', () => s.setPrice(1, 150)],
+      ['1012', () => s.voidLine(1)],
+    ];
+    for (const [id, run] of mutations) {
+      expect(eventIds(run())).toEqual([id, '1020', '1005']);
+    }
+  });
+
+  it('does not emit Arrondir and tenders the exact total', () => {
+    const s = us();
+    s.addItem({ code: '1', description: 'A', priceCents: 202 }); // tax 10 → total 212 (no nickel rounding)
+    const msgs = s.tender('cash-exact');
+    expect(msgs.some((m) => m.data.includes('Description=Arrondir'))).toBe(false);
+    expect(eventIds(msgs)).not.toContain('1022');
+    const tender = msgs.find((m) => m.data.includes('EventId=1007'))!;
+    expect(tender.data).toContain('Amount=2.12');
+  });
+
+  it('next-dollar change math uses the exact total (no nickel rounding)', () => {
+    const s = us();
+    s.addItem({ code: '1', description: 'A', priceCents: 202 }); // total 212 → tender 300 → change 88
+    const msgs = s.tender('next-dollar');
+    expect(msgs.find((m) => m.data.includes('EventId=1007'))?.data).toContain('Amount=3.00');
+    expect(msgs.find((m) => m.data.includes('EventId=1008'))?.data).toContain('Amount=0.88');
+  });
+
+  it('basket end carries totals in US mode', () => {
+    const s = us();
+    s.addItem({ code: '1', description: 'A', priceCents: 202 });
+    const end = s.tender('cash-exact').find((m) => m.data.includes('EventId=1002'))!;
+    expect(end.data).toContain('SubtotalAmount=2.02');
+    expect(end.data).toContain('TaxAmount=0.10');
+    expect(end.data).toContain('TotalAmount=2.12');
+  });
+
+  it('voidTicket carries totals on the cancelled basket end', () => {
+    const s = us();
+    s.addItem({ code: '1', description: 'A', priceCents: 202 });
+    const end = s.voidTicket().find((m) => m.data.includes('EventId=1002'))!;
+    expect(end.data).toContain('TransactionCompletionType=Cancelled');
+    expect(end.data).toContain('SubtotalAmount=2.02');
+    expect(end.data).toContain('TaxAmount=0.10');
+    expect(end.data).toContain('TotalAmount=2.12');
+  });
+
+  it('suspend/resume still works (inherits the radiant6 path)', () => {
+    const s = us();
+    s.addItem({ code: '1', description: 'A', priceCents: 100 });
+    const sus = s.suspend();
+    expect(sus[0].data).toContain('EventId=1003');
+    const res = s.resume();
+    expect(res[0].data).toContain('EventId=1004');
+    expect(s.snapshot().lines).toHaveLength(1);
+  });
+
+  it('ignores setLocale(fr) — locale stays en', () => {
+    const s = us();
+    s.setLocale('fr');
+    expect(s.locale).toBe('en');
+    const msgs = s.addItem({ code: '1', description: 'A', priceCents: 194 });
+    const poleBalance = msgs.filter((m) => m.channel === 'pole').pop()!;
+    expect(poleBalance.data).toContain('Balance Due');
+  });
+
+  it('canada emits no 1005/1020 (regression)', () => {
+    const msgs = new RegisterSession().addItem({ code: '1', description: 'A', priceCents: 202 });
+    expect(msgs.some((m) => /EventId=10(05|20)/.test(m.data))).toBe(false);
+  });
+
+  it('canada basket end carries no totals (regression)', () => {
+    const s = new RegisterSession();
+    s.addItem({ code: '1', description: 'A', priceCents: 202 });
+    const end = s.tender('cash-exact').find((m) => m.data.includes('EventId=1002'))!;
+    expect(end.data).not.toContain('SubtotalAmount=');
+    expect(end.data).not.toContain('TaxAmount=');
+    expect(end.data).not.toContain('TotalAmount=');
+  });
+});
+
+describe('RegisterSession — reset for next sale', () => {
+  it('suspend → tender → resume returns [] (tender clears the suspended flag)', () => {
+    const s = new RegisterSession();
+    s.addItem({ code: '1', description: 'A', priceCents: 100 });
+    s.suspend();
+    s.tender('cash-exact');
+    expect(s.resume()).toEqual([]);
+  });
+});
+
 function poleDatas(messages: WireMessage[]): string[] {
   return messages.filter((m) => m.channel === 'pole').map((m) => m.data);
 }
