@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { builtinScenarios, scenarioForAd, type ScenarioParams } from './scenarios';
+import { builtinScenarios, describeStep, scenarioForAd, type ScenarioParams } from './scenarios';
 
 const params: ScenarioParams = {
   itemCode: '049000000443',
@@ -154,5 +154,34 @@ describe('scenarioForAd', () => {
     expect(kinds).toEqual(['scan', 'wait', 'loyalty', 'waitForInject', 'wait', 'tender']);
     const last = s.steps[s.steps.length - 1];
     expect(last).toMatchObject({ kind: 'tender', tenderKind: 'cash-exact' });
+  });
+});
+
+describe('describeStep', () => {
+  it('includes the payload so equal-looking steps are distinguishable', () => {
+    expect(describeStep({ kind: 'loyalty', cardNumber: '70846414251491703' })).toBe('loyalty 70846414251491703');
+    expect(describeStep({ kind: 'loyalty', cardNumber: '012345678905' })).toBe('loyalty 012345678905');
+    expect(describeStep({ kind: 'scan', code: '028200009654' })).toBe('scan 028200009654');
+    expect(describeStep({ kind: 'wait', ms: 750 })).toBe('wait 750ms');
+    expect(describeStep({ kind: 'tender', tenderKind: 'cash-exact' })).toBe('tender cash-exact');
+    expect(describeStep({ kind: 'tender', tenderKind: 'amount', amountCents: 500 })).toBe('tender amount 5.00');
+  });
+
+  it('summarizes waitForInject with and without expected codes', () => {
+    expect(describeStep({ kind: 'waitForInject', timeoutMs: 15000 })).toBe('waitForInject ≤15s');
+    expect(describeStep({ kind: 'waitForInject', timeoutMs: 60000, expectCodes: ['999', '111'] })).toBe(
+      'waitForInject ≤60s (999, 111)',
+    );
+  });
+
+  it('covers line edits and bare kinds', () => {
+    expect(describeStep({ kind: 'voidLine', lineNumber: 2 })).toBe('voidLine #2');
+    expect(describeStep({ kind: 'setQuantity', lineNumber: 1, quantity: 3 })).toBe('setQuantity #1 ×3');
+    expect(describeStep({ kind: 'setPrice', lineNumber: 2, priceCents: 149 })).toBe('setPrice #2 → 1.49');
+    expect(describeStep({ kind: 'setLocale', locale: 'fr' })).toBe('setLocale fr');
+    expect(describeStep({ kind: 'suspend' })).toBe('suspend');
+    expect(describeStep({ kind: 'resume' })).toBe('resume');
+    expect(describeStep({ kind: 'voidTicket' })).toBe('voidTicket');
+    expect(describeStep({ kind: 'expect', check: 'lineCount', value: 1 })).toBe('expect lineCount = 1');
   });
 });

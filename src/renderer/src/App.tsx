@@ -4,7 +4,7 @@ import { useScenarioRunner } from './useScenarioRunner';
 import { formatCurrency, type PosLocale } from '../../core/currency';
 import { paginate } from '../../core/quickkeys';
 import { isInteractiveTemplate, type AdItem } from '../../core/adTriggers';
-import { builtinScenarios, scenarioForAd, type ScenarioParams } from '../../core/scenarios';
+import { builtinScenarios, describeStep, scenarioForAd, type ScenarioParams } from '../../core/scenarios';
 import type { RunResult, StepResult, StepStatus } from '../../core/scenarioRunner';
 import { REGISTER_TYPES, portsForRegisterType, type ConnState, type RegisterType } from '../../core/posTypes';
 import './App.css';
@@ -12,7 +12,9 @@ import './App.css';
 const QK_PER_PAGE = 9; // 3 columns × 3 rows
 const SCENARIO_CARD_KEY = 'r6ca.scenario.loyaltyCard';
 const SCENARIO_GAP_KEY = 'r6ca.scenario.stepGapMs';
+const SCENARIO_COUPON_KEY = 'r6ca.scenario.upcCoupon12';
 const DEFAULT_SCENARIO_CARD = '70846414251491703';
+const DEFAULT_UPC_COUPON = '012345678905';
 const DEFAULT_STEP_GAP_MS = 750;
 
 function Dot({ state }: { state: ConnState }): JSX.Element {
@@ -324,7 +326,7 @@ function StepRows({ steps }: { steps: StepResult[] }): JSX.Element {
       {steps.map((s, i) => (
         <div key={i} className="steprow">
           <span className="stepnum">{i + 1}/{steps.length}</span>
-          <span className="stepkind">{s.step.kind}</span>
+          <span className="stepkind" title={describeStep(s.step)}>{describeStep(s.step)}</span>
           <span className={`stepglyph ${s.status}`}>{STEP_GLYPH[s.status]}</span>
           {s.detail && (
             <span className="stepdetail" title={s.detail}>{s.detail}</span>
@@ -369,6 +371,8 @@ function Scenarios({
   setLoyaltyCard,
   stepGapMs,
   setStepGapMs,
+  upcCoupon12,
+  setUpcCoupon12,
 }: {
   e: ReturnType<typeof useEmulator>;
   r: ReturnType<typeof useScenarioRunner>;
@@ -377,6 +381,8 @@ function Scenarios({
   setLoyaltyCard: (card: string) => void;
   stepGapMs: number;
   setStepGapMs: (ms: number) => void;
+  upcCoupon12: string;
+  setUpcCoupon12: (upc: string) => void;
 }): JSX.Element {
   const registerType = e.config.registerType;
   const list = useMemo(
@@ -418,7 +424,19 @@ function Scenarios({
             }}
           />
         </label>
+        <label title="12-digit UPC for the 'UPC sent as loyalty card' scenario — the player only rings the coupon when this UPC exists in ITS pricebook, so use one it knows">
+          Coupon UPC
+          <input
+            type="text"
+            className="sccoupon"
+            value={upcCoupon12}
+            onChange={(ev) => setUpcCoupon12(ev.target.value.trim())}
+          />
+        </label>
       </div>
+      {!/^\d{12}$/.test(upcCoupon12) && (
+        <div className="hint">Coupon UPC must be exactly 12 digits — anything else is treated by the player as a loyalty sign-in, not a coupon.</div>
+      )}
       <div className="sclist">
         {list.map((s) => {
           const active = r.running === s.id;
@@ -529,6 +547,21 @@ function App(): JSX.Element {
       // ignore storage failures (private mode etc.)
     }
   }, []);
+  const [upcCoupon12, setUpcCoupon12State] = useState<string>(() => {
+    try {
+      return localStorage.getItem(SCENARIO_COUPON_KEY) ?? DEFAULT_UPC_COUPON;
+    } catch {
+      return DEFAULT_UPC_COUPON;
+    }
+  });
+  const setUpcCoupon12 = useCallback((upc: string) => {
+    setUpcCoupon12State(upc);
+    try {
+      localStorage.setItem(SCENARIO_COUPON_KEY, upc);
+    } catch {
+      // ignore storage failures (private mode etc.)
+    }
+  }, []);
 
   // Item codes for the canned scenarios: first two quick keys, falling back to
   // the derived quick-key picks, then the bundled PRICEBOOK constants.
@@ -538,10 +571,10 @@ function App(): JSX.Element {
       itemCode: qkEntries[0]?.upc ?? e.quickKeys[0]?.code ?? PRICEBOOK[0].code,
       itemCode2: qkEntries[1]?.upc ?? e.quickKeys[1]?.code ?? PRICEBOOK[1].code,
       loyaltyCard,
-      upcCoupon12: '012345678905',
+      upcCoupon12,
       stepGapMs,
     };
-  }, [e.quickKeyFiles, e.quickKeys, loyaltyCard, stepGapMs]);
+  }, [e.quickKeyFiles, e.quickKeys, loyaltyCard, upcCoupon12, stepGapMs]);
 
   return (
     <div className="app">
@@ -709,6 +742,8 @@ function App(): JSX.Element {
               setLoyaltyCard={setLoyaltyCard}
               stepGapMs={stepGapMs}
               setStepGapMs={setStepGapMs}
+              upcCoupon12={upcCoupon12}
+              setUpcCoupon12={setUpcCoupon12}
             />
           ) : (
             <div className="log">

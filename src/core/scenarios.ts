@@ -204,3 +204,39 @@ export function scenarioForAd(ad: AdTriggersCompleters, p: ScenarioParams): Scen
     ],
   };
 }
+
+/**
+ * One-line human summary of a step's action AND payload, for the UI ticker —
+ * so two scenarios that differ only in payload (e.g. loyalty card vs 12-digit
+ * UPC on the same 1024 event) read differently.
+ */
+export function describeStep(step: ScenarioStep): string {
+  switch (step.kind) {
+    case 'scan':
+      return `scan ${step.code}`;
+    case 'loyalty':
+      return `loyalty ${step.cardNumber}`;
+    case 'wait':
+      return `wait ${step.ms}ms`;
+    case 'waitForInject':
+      return step.expectCodes && step.expectCodes.length > 0
+        ? `waitForInject ≤${step.timeoutMs / 1000}s (${step.expectCodes.join(', ')})`
+        : `waitForInject ≤${step.timeoutMs / 1000}s`;
+    case 'tender':
+      return step.amountCents !== undefined
+        ? `tender ${step.tenderKind} ${(step.amountCents / 100).toFixed(2)}`
+        : `tender ${step.tenderKind}`;
+    case 'voidLine':
+      return `voidLine #${step.lineNumber}`;
+    case 'setQuantity':
+      return `setQuantity #${step.lineNumber} ×${step.quantity}`;
+    case 'setPrice':
+      return `setPrice #${step.lineNumber} → ${(step.priceCents / 100).toFixed(2)}`;
+    case 'setLocale':
+      return `setLocale ${step.locale}`;
+    case 'expect':
+      return `expect ${step.check} = ${step.value}`;
+    default:
+      return step.kind;
+  }
+}
