@@ -47,8 +47,21 @@ describe('register types & ports', () => {
     expect(portsForRegisterType('bulloch')).toEqual({ vjPort: 5438, polePort: 5440 });
   });
 
-  it('lists exactly the two CA register types with labels', () => {
-    expect(REGISTER_TYPES.map((r) => r.value)).toEqual(['radiant6-canada', 'bulloch']);
+  it('lists exactly the three register types with labels', () => {
+    expect(REGISTER_TYPES.map((r) => r.value)).toEqual(['radiant6-canada', 'radiant6-us', 'bulloch']);
     expect(REGISTER_TYPES.find((r) => r.value === 'bulloch')?.label).toBe('Bulloch');
+  });
+
+  it('maps Radiant6 US to VJ 5438 / pole 5439 (shared Radiant6 ports)', () => {
+    expect(portsForRegisterType('radiant6-us')).toEqual({ vjPort: 5438, polePort: 5439 });
+  });
+
+  it('registers Radiant6 US with its label and ports', () => {
+    expect(REGISTER_TYPES.find((r) => r.value === 'radiant6-us')).toEqual({
+      value: 'radiant6-us',
+      label: 'Radiant6 US',
+      vjPort: 5438,
+      polePort: 5439,
+    });
   });
 });

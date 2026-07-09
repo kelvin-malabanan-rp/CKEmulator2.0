@@ -9,13 +9,17 @@ export type Channel = 'vj' | 'pole';
 export type ConnState = 'connected' | 'connecting' | 'disconnected';
 export type Status = Record<Channel, ConnState>;
 
-/** Canadian POS register types — each listens on its own VJ/pole ports. */
-export type RegisterType = 'radiant6-canada' | 'bulloch';
+/**
+ * POS register types — each listens on its own VJ/pole ports; radiant6-us
+ * shares the Radiant6 ports but flips VJ-totals/rounding behavior
+ * (see RegisterSession).
+ */
+export type RegisterType = 'radiant6-canada' | 'radiant6-us' | 'bulloch';
 
 /**
- * Per-register-type defaults (the ports the player listens on). Radiant6 Canada
- * uses VJ 5438 / pole 5439; Bulloch is pole-primary on 5440 (legacy
- * `debug1.properties`: "Bulloch typically listens on TCP 5440").
+ * Per-register-type defaults (the ports the player listens on). Radiant6
+ * Canada and US use VJ 5438 / pole 5439; Bulloch is pole-primary on 5440
+ * (legacy `debug1.properties`: "Bulloch typically listens on TCP 5440").
  */
 export const REGISTER_TYPES: ReadonlyArray<{
   value: RegisterType;
@@ -24,6 +28,7 @@ export const REGISTER_TYPES: ReadonlyArray<{
   polePort: number;
 }> = [
   { value: 'radiant6-canada', label: 'Radiant6 Canada', vjPort: 5438, polePort: 5439 },
+  { value: 'radiant6-us', label: 'Radiant6 US', vjPort: 5438, polePort: 5439 },
   { value: 'bulloch', label: 'Bulloch', vjPort: 5438, polePort: 5440 },
 ];
 
