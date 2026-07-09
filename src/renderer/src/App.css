@@ -129,12 +129,13 @@ h3 { margin: 9px 0 5px; font-size: 13px; text-transform: uppercase; letter-spaci
 .tcitem small { color: #9aa; font-family: ui-monospace, Menlo, monospace; font-size: 10px; }
 /* Scenarios */
 .scenarios { display: flex; flex-direction: column; gap: 6px; }
-.scparams { display: flex; align-items: center; gap: 10px; }
+.scparams { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .scparams label { display: flex; align-items: center; gap: 5px; font-size: 11px; color: #8b93a3; min-width: 0; }
 .scparams label:first-child { flex: 1; }
 .scparams input { background: #14161a; border: 1px solid #333; color: #e7e9ee; border-radius: 4px; padding: 5px 7px; font-size: 12px; min-width: 0; }
 .scparams input.sccard { flex: 1; }
 .scparams input.scgap { width: 72px; }
+.scparams input.sccoupon { width: 118px; font-variant-numeric: tabular-nums; }
 .sclist { display: flex; flex-direction: column; gap: 5px; }
 .scrow { display: flex; flex-direction: column; gap: 5px; background: #20242b; border: 1px solid #2a2e37; border-radius: 6px; padding: 6px 8px; }
 .scrowhead { display: flex; align-items: center; gap: 6px; }
