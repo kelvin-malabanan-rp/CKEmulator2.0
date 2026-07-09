@@ -48,7 +48,7 @@ interface InjectWaiter {
   settle(outcome: 'inject'): void;
 }
 
-const OK: { status: 'ok' | 'fail'; detail?: string } = { status: 'ok' };
+const OK: { status: 'ok' | 'fail'; detail?: string } = Object.freeze({ status: 'ok' });
 
 /**
  * Runs one Scenario. Single-use: create a fresh runner per run — after
@@ -218,12 +218,15 @@ export class ScenarioRunner {
         timer = setTimeout(() => settle('timeout'), step.timeoutMs);
         void this.cancelSignal.then(() => settle('cancelled'));
       });
-      const ignoredNote = ignored.length > 0 ? `; ignored inject(s): ${ignored.join(', ')}` : '';
+      const ignoredNote = ignored.length > 0 ? `ignored inject(s): ${ignored.join(', ')}` : '';
       if (outcome === 'timeout') {
-        return { status: 'fail', detail: `timeout after ${step.timeoutMs}ms${ignoredNote}` };
+        const detail = [`timeout after ${step.timeoutMs}ms`, ignoredNote]
+          .filter(Boolean)
+          .join('; ');
+        return { status: 'fail', detail };
       }
       // 'cancelled' is rewritten to 'skipped' by the run loop; report ok here.
-      return ignoredNote ? { status: 'ok', detail: ignoredNote.slice(2) } : OK;
+      return ignoredNote ? { status: 'ok', detail: ignoredNote } : OK;
     } finally {
       if (timer !== undefined) clearTimeout(timer);
       this.waiter = null;

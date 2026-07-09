@@ -114,6 +114,46 @@ describe('ScenarioRunner', () => {
     expect(actions.calls).toEqual([]);
   });
 
+  it('cancel() during a pending waitForInject skips it, and notifyInject after the run is a no-op', async () => {
+    vi.useFakeTimers();
+    const actions = fakeActions();
+    const r = new ScenarioRunner(actions);
+    const promise = r.run(
+      scenario([
+        { kind: 'waitForInject', timeoutMs: 15_000, expectCodes: ['999'] },
+        { kind: 'scan', code: '049000000443' },
+      ]),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    r.cancel();
+    const result = await promise;
+    expect(result.verdict).toBe('cancelled');
+    expect(result.steps.map((s) => s.status)).toEqual(['skipped', 'skipped']);
+    expect(actions.calls).toEqual([]);
+    expect(() => r.notifyInject({ barcode: '999', quantity: 1 })).not.toThrow();
+  });
+
+  it('an inject arriving just before the timeout wins without double-settling the step', async () => {
+    vi.useFakeTimers();
+    const actions = fakeActions();
+    const events: Array<{ index: number; status: StepResult['status'] }> = [];
+    const r = new ScenarioRunner(actions, {
+      onProgress: (index, result) => events.push({ index, status: result.status }),
+    });
+    const promise = r.run(scenario([{ kind: 'waitForInject', timeoutMs: 50, expectCodes: ['999'] }]));
+    await vi.advanceTimersByTimeAsync(49);
+    r.notifyInject({ barcode: '999', quantity: 1 });
+    await vi.advanceTimersByTimeAsync(100);
+    const result = await promise;
+    expect(result.verdict).toBe('pass');
+    expect(result.steps).toHaveLength(1);
+    expect(result.steps[0].status).toBe('ok');
+    expect(events).toEqual([
+      { index: 0, status: 'running' },
+      { index: 0, status: 'ok' },
+    ]);
+  });
+
   it('cancel() before any run is a safe no-op', () => {
     const r = new ScenarioRunner(fakeActions());
     expect(() => {
