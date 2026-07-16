@@ -6,7 +6,7 @@ registers (Canada **and** US) and emits the exact wire stream **CK Player
 physical POS hardware. (Formerly the *Canada POS Emulator* — it now covers more
 than Canada.)
 
-Supports three register types:
+Supports four register types:
 
 - **Radiant6 Canada** — Virtual Journal (`EventId=…`) **+** Pole Display.
 - **Radiant6 US** — same VJ/pole ports as Canada (5438/5439), but the VJ is
@@ -17,6 +17,9 @@ Supports three register types:
   prefixes for the `1024` flow; the emulator sends whatever card you configure.
 - **Bulloch** — **pole-display only** (`[C000]/[C110]/[C120]/[C121]/[C200]`); no
   virtual journal, mirroring the real Bulloch lane.
+- **Verifone Topaz** — US, **plaintext** VJ (no `EventId=` protocol) **+** pole
+  display **+** a separate barcode-scanner feed. VJ-authoritative, cents-exact,
+  en-US only.
 
 It replaces the empty `Radiant6CanadaRegisterEmulator` / `BullochRegisterEmulator`
 stubs in the legacy `liftck_player` emulator module.
@@ -43,6 +46,26 @@ stubs in the legacy `liftck_player` emulator module.
   `[C110] <barcode> <desc> QT= PR= AMT= STTL= DSC= TAX= TOTAL=`, `[C120] Undo
   Item`, `[C121] CLEAR SALE`, `[C200] Sale TRANS= TOTAL= CHNG= TAX=`. **No VJ
   socket is opened** for Bulloch (items are pole-authoritative).
+
+**Verifone Topaz** (`verifone-topaz` register type)
+- **Virtual Journal** (TCP, default `127.0.0.1:10002`): plaintext lines framed
+  `MM/dd/yy HH:mm:ss <registerId> <payload>` — item add/void, `Sub Total`,
+  `Tax`, `Total`, `CASH` tender, `LOYALTY <digits>`, `VOID TICKET`,
+  `TRANSACTION SUSPENDED`, `CSH:` cashier, `ST#…TRAN#` basket end. The VJ is
+  authoritative; money is dollars on the wire; no cash rounding.
+- **Pole Display** (TCP, default `127.0.0.1:10001`): `ESC l \x01 \x01|\x02` +
+  20-char frames — `TOTAL`, `CASH` tender, `CHANGE`, item mirrors.
+- **Barcode scanner** (TCP, default `127.0.0.1:10000`): one CRLF-terminated
+  barcode per scan, echoed before each coded item add (`register.confirmScans`
+  flow).
+- In prod all three Topaz feeds are **serial COM ports** (scanner COM1, pole
+  COM2, VJ COM3 — LIFT-2669); the TCP ports follow the **legacy dev
+  convention** (liftck_player `system.properties`, release/8.2.8.0): scanner
+  `10000`, pole `10001`, VJ `10002`. Point the player at them with
+  `scanner.ioParams=TCP:10000`, `poledisplay.ioParams=TCP:10001`,
+  `virtualjournal.ioParams=TCP:10002` (CKP2.0's `IODeviceFactory` accepts
+  `TCP:<port>` and listens) — CKP2.0's `system.properties` Topaz block
+  already ships these values.
 
 Canada rules honoured: tax/balance are **pole-authoritative** (the Radiant6
 Canada VJ never emits `1005`/`1020`); cash rounds to the nearest 5¢ and emits

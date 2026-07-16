@@ -112,7 +112,7 @@ function registerEmulatorIpc(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle('emulator:disconnect', () => {
     transport?.close();
     transport = null;
-    return { vj: 'disconnected', pole: 'disconnected' } satisfies Status;
+    return { vj: 'disconnected', pole: 'disconnected', scanner: 'disconnected' } satisfies Status;
   });
 
   ipcMain.handle('emulator:send', (_evt, payload: { channel: Channel; data: string }) => {
@@ -120,7 +120,10 @@ function registerEmulatorIpc(getWindow: () => BrowserWindow | null): void {
   });
 
   ipcMain.handle('emulator:status', () => {
-    return transport?.status() ?? ({ vj: 'disconnected', pole: 'disconnected' } satisfies Status);
+    return (
+      transport?.status() ??
+      ({ vj: 'disconnected', pole: 'disconnected', scanner: 'disconnected' } satisfies Status)
+    );
   });
 
   // Load the OCT2000 pricebook that corresponds to the player code in use:

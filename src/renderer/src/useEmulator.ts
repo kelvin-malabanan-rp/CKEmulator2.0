@@ -46,7 +46,7 @@ export const PRICEBOOK: PricebookItem[] = [
   { code: '063500001019', description: 'Barre Choc', priceCents: 249 },
 ];
 
-const idleStatus: Status = { vj: 'disconnected', pole: 'disconnected' };
+const idleStatus: Status = { vj: 'disconnected', pole: 'disconnected', scanner: 'disconnected' };
 const PLAYER_CFG_KEY = 'r6ca.playerConfig';
 const PRICEBOOK_DIR_KEY = 'r6ca.pricebookDir';
 // Empty = use the sample pricebook bundled with this repo (resolved in the main
@@ -370,7 +370,8 @@ export function useEmulator(): {
   }, [pricebookIndex, quickKeys, session, dispatch, logSys]);
 
   const connect = useCallback(async () => {
-    logSys(`Connecting to ${config.host} (VJ ${config.vjPort}, pole ${config.polePort})…`);
+    const scannerNote = config.scannerPort !== undefined ? `, scanner ${config.scannerPort}` : '';
+    logSys(`Connecting to ${config.host} (VJ ${config.vjPort}, pole ${config.polePort}${scannerNote})…`);
     const s = await window.emulator.connect(config);
     setStatus(s);
   }, [config, logSys]);
