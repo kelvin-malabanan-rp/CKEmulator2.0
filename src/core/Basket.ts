@@ -1,5 +1,5 @@
 /**
- * Pure, browser-safe basket model for the Radiant6 Canada emulator.
+ * Pure, browser-safe basket model for CKEmulator 2.0.
  *
  * All money is integer cents — never floats. Tax is computed from a basis-point
  * rate (500 = 5.00%). CAD cash rounding ("Arrondir") rounds the total to the

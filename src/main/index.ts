@@ -210,7 +210,7 @@ function registerEmulatorIpc(getWindow: () => BrowserWindow | null): void {
     try {
       const res = await fetch(url, {
         signal: controller.signal,
-        headers: { 'Content-Type': 'application/json', 'User-Agent': 'CK-Canada-Emulator/1.0' },
+        headers: { 'Content-Type': 'application/json', 'User-Agent': 'CKEmulator/2.0' },
       });
       if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
       return await res.json();
@@ -372,7 +372,7 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
-  electronApp.setAppUserModelId('io.rocketpartners.canada-emulator');
+  electronApp.setAppUserModelId('io.rocketpartners.ckemulator2');
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window);

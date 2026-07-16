@@ -1,7 +1,7 @@
 {
-  "name": "canada-emulator",
+  "name": "ckemulator2.0",
   "version": "0.1.0",
-  "description": "Standalone Canada POS register emulator (Radiant6 Canada + Bulloch) for CK Player 2.0",
+  "description": "CKEmulator 2.0 — standalone POS register emulator (Radiant6 Canada + Bulloch) for CK Player 2.0",
   "main": "./out/main/index.js",
   "author": "Rocket Partners",
   "license": "UNLICENSED",

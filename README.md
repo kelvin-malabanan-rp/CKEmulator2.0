@@ -1,9 +1,10 @@
-# Canada POS Emulator
+# CKEmulator 2.0
 
-A standalone **Electron + React + TypeScript** desktop app that simulates a
-Canadian register and emits the exact wire stream **CK Player 2.0**'s Canada
-plugins consume. Use it to drive and test the player without physical POS
-hardware.
+A standalone **Electron + React + TypeScript** desktop app that simulates POS
+registers (Canada **and** US) and emits the exact wire stream **CK Player
+2.0**'s register plugins consume. Use it to drive and test the player without
+physical POS hardware. (Formerly the *Canada POS Emulator* — it now covers more
+than Canada.)
 
 Supports three register types:
 

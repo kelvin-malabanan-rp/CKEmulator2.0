@@ -581,7 +581,7 @@ function App(): JSX.Element {
   return (
     <div className="app">
       <header className="bar">
-        <strong>Canada Emulator</strong>
+        <strong>CKEmulator 2.0</strong>
         <span className="conn">
           <Dot state={e.status.vj} /> VJ {e.config.host}:{e.config.vjPort}
           <Dot state={e.status.pole} /> Pole {e.config.host}:{e.config.polePort}
