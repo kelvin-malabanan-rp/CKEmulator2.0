@@ -715,8 +715,7 @@ function App(): JSX.Element {
                   <td className="lineactions">
                     {!li.voided && (
                       <>
-                        <button onClick={() => e.setQuantity(li.lineNumber, li.quantity + 1)}>+1</button>
-                        <button onClick={() => e.setPrice(li.lineNumber, Math.max(0, li.unitPriceCents - 10))}>-10¢</button>
+                        <button onClick={() => e.setQuantity(li.lineNumber, Math.max(1, li.quantity - 1))}>-1</button>
                         <button onClick={() => e.voidLine(li.lineNumber)}>void</button>
                       </>
                     )}
