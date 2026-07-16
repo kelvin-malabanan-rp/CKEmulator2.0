@@ -1,12 +1,23 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useEmulator } from './useEmulator';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { PRICEBOOK, useEmulator } from './useEmulator';
+import { useScenarioRunner } from './useScenarioRunner';
 import { formatCurrency, type PosLocale } from '../../core/currency';
 import { paginate } from '../../core/quickkeys';
 import { isInteractiveTemplate, type AdItem } from '../../core/adTriggers';
+import { builtinScenarios, describeStep, scenarioForAd, type ScenarioParams } from '../../core/scenarios';
+import type { RunResult, StepResult, StepStatus } from '../../core/scenarioRunner';
 import { REGISTER_TYPES, portsForRegisterType, type ConnState, type RegisterType } from '../../core/posTypes';
 import './App.css';
 
 const QK_PER_PAGE = 9; // 3 columns × 3 rows
+const SCENARIO_CARD_KEY = 'r6ca.scenario.loyaltyCard';
+const SCENARIO_GAP_KEY = 'r6ca.scenario.stepGapMs';
+const SCENARIO_COUPON_KEY = 'r6ca.scenario.upcCoupon12';
+// Valid CK loyalty format: 22 digits starting 8018 — the player's
+// getCKLoyaltyNumber rejects anything else before it ever calls login.
+const DEFAULT_SCENARIO_CARD = '8018782603900930000100';
+const DEFAULT_UPC_COUPON = '012345678905';
+const DEFAULT_STEP_GAP_MS = 750;
 
 function Dot({ state }: { state: ConnState }): JSX.Element {
   const color = state === 'connected' ? '#3ec46d' : state === 'connecting' ? '#e6b450' : '#d9534f';
@@ -71,8 +82,18 @@ function QuickKeys({ e, locale }: { e: ReturnType<typeof useEmulator>; locale: P
  * Triggers & Completers — lists the live ads (from the backend manifest), each
  * with Triggers (UPCs that fire it) and Completers (items that complete its
  * offer). Click an item in the modal to scan it straight into the basket.
+ * Silent-capable ads (injectItem/addDiscount figs) also get a Silent ▶ button
+ * that runs the scan→sign-in→wait-for-inject scenario for that ad.
  */
-function TriggersCompleters({ e }: { e: ReturnType<typeof useEmulator> }): JSX.Element {
+function TriggersCompleters({
+  e,
+  r,
+  params,
+}: {
+  e: ReturnType<typeof useEmulator>;
+  r: ReturnType<typeof useScenarioRunner>;
+  params: ScenarioParams;
+}): JSX.Element {
   const [page, setPage] = useState(0);
   const [modal, setModal] = useState<{
     ad: { id: string; name: string };
@@ -162,7 +183,8 @@ function TriggersCompleters({ e }: { e: ReturnType<typeof useEmulator> }): JSX.E
           <div className="tclist">
             {current.map((ad) => {
               const cs = completerState(ad.id);
-              const template = adDetails[ad.id]?.template ?? '';
+              const detail = adDetails[ad.id];
+              const template = detail?.template ?? '';
               const interactive = isInteractiveTemplate(template);
               return (
                 <div key={ad.id || ad.name} className={`tcrow${interactive ? ' interactive' : ''}`}>
@@ -189,6 +211,16 @@ function TriggersCompleters({ e }: { e: ReturnType<typeof useEmulator> }): JSX.E
                   >
                     {busy === `${ad.id}:completers` ? '…' : 'Completers'}
                   </button>
+                  {detail?.silentCapable && detail.triggers.length > 0 && e.config.registerType !== 'bulloch' && (
+                    <button
+                      className="tcbtn"
+                      disabled={r.running !== null}
+                      title="Run the silent-injection scenario for this ad: scan its trigger, sign in, wait for the player to inject the completer, tender."
+                      onClick={() => void r.runScenario(scenarioForAd(detail, params)!)}
+                    >
+                      Silent ▶
+                    </button>
+                  )}
                 </div>
               );
             })}
@@ -268,18 +300,288 @@ function LoyaltyInput({ e }: { e: ReturnType<typeof useEmulator> }): JSX.Element
   );
 }
 
+const STEP_GLYPH: Record<StepStatus, string> = {
+  pending: '·',
+  running: '…',
+  ok: '✓',
+  fail: '✗',
+  skipped: '⏭',
+};
+
+/** Short lane tags shown on each scenario row; the active lane's tag is accented. */
+const REGISTER_TAG: Record<RegisterType, string> = {
+  'radiant6-canada': 'CA',
+  'radiant6-us': 'US',
+  bulloch: 'BUL',
+};
+
+const REGISTER_TAG_TITLE: Record<RegisterType, string> = {
+  'radiant6-canada': 'Radiant6 Canada',
+  'radiant6-us': 'Radiant6 US',
+  bulloch: 'Bulloch (Canada, pole-only)',
+};
+
+/** Compact per-step trail: `n/m kind glyph [detail]` — used live and for the last result. */
+function StepRows({ steps }: { steps: StepResult[] }): JSX.Element {
+  return (
+    <div className="steplist">
+      {steps.map((s, i) => (
+        <div key={i} className="steprow">
+          <span className="stepnum">{i + 1}/{steps.length}</span>
+          <span className="stepkind" title={describeStep(s.step)}>{describeStep(s.step)}</span>
+          <span className={`stepglyph ${s.status}`}>{STEP_GLYPH[s.status]}</span>
+          {s.detail && (
+            <span className="stepdetail" title={s.detail}>{s.detail}</span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Finished-run verdict badge + its compact step trail; persists until the next run. */
+function RunOutcome({ result }: { result: RunResult }): JSX.Element {
+  const failed = result.steps.find((s) => s.status === 'fail');
+  return (
+    <div className="scresult">
+      {result.verdict === 'pass' ? (
+        <span className="badge-pass">PASS</span>
+      ) : result.verdict === 'cancelled' ? (
+        <span className="badge-cancel">CANCELLED</span>
+      ) : (
+        <span className="badge-fail" title={failed?.detail}>
+          FAIL{failed?.detail ? ` — ${failed.detail}` : ''}
+        </span>
+      )}
+      <StepRows steps={result.steps} />
+    </div>
+  );
+}
+
+/**
+ * Scenarios — one button per canned end-to-end flow (silent injection,
+ * arrondir, fr-CA, …) for the current register type. Shows a live step ticker
+ * while a run is active and the PASS/FAIL/CANCELLED outcome afterwards.
+ * Per-ad Silent ▶ runs (from Triggers & Completers) surface their progress
+ * and outcome here too.
+ */
+function Scenarios({
+  e,
+  r,
+  params,
+  loyaltyCard,
+  setLoyaltyCard,
+  stepGapMs,
+  setStepGapMs,
+  upcCoupon12,
+  setUpcCoupon12,
+}: {
+  e: ReturnType<typeof useEmulator>;
+  r: ReturnType<typeof useScenarioRunner>;
+  params: ScenarioParams;
+  loyaltyCard: string;
+  setLoyaltyCard: (card: string) => void;
+  stepGapMs: number;
+  setStepGapMs: (ms: number) => void;
+  upcCoupon12: string;
+  setUpcCoupon12: (upc: string) => void;
+}): JSX.Element {
+  const registerType = e.config.registerType;
+  const list = useMemo(
+    () => builtinScenarios(params).filter((s) => s.registerTypes.includes(registerType)),
+    [params, registerType],
+  );
+  // Runs started elsewhere (the per-ad Silent ▶ buttons) aren't in the list;
+  // give them a row at the bottom so their ticker/outcome still shows.
+  const listedIds = useMemo(() => new Set(list.map((s) => s.id)), [list]);
+  const strayRunning = r.running !== null && !listedIds.has(r.running);
+  const strayResult =
+    r.running === null && r.lastResult !== null && !listedIds.has(r.lastResult.id)
+      ? r.lastResult
+      : null;
+
+  return (
+    <div className="scenarios">
+      <div className="scparams">
+        <label title="Loyalty card scenarios sign in with">
+          Card
+          <input
+            type="text"
+            className="sccard"
+            value={loyaltyCard}
+            onChange={(ev) => setLoyaltyCard(ev.target.value)}
+          />
+        </label>
+        <label title="Pause between scenario steps (ms)">
+          Gap ms
+          <input
+            type="number"
+            className="scgap"
+            min={0}
+            step={50}
+            value={stepGapMs}
+            onChange={(ev) => {
+              const v = Number(ev.target.value);
+              setStepGapMs(Number.isFinite(v) && v >= 0 ? Math.floor(v) : DEFAULT_STEP_GAP_MS);
+            }}
+          />
+        </label>
+        <label title="12-digit UPC for the 'UPC sent as loyalty card' scenario — the player only rings the coupon when this UPC exists in ITS pricebook, so use one it knows">
+          Coupon UPC
+          <input
+            type="text"
+            className="sccoupon"
+            value={upcCoupon12}
+            onChange={(ev) => setUpcCoupon12(ev.target.value.trim())}
+          />
+        </label>
+      </div>
+      {!/^\d{12}$/.test(upcCoupon12) && (
+        <div className="hint">Coupon UPC must be exactly 12 digits — anything else is treated by the player as a loyalty sign-in, not a coupon.</div>
+      )}
+      <div className="sclist">
+        {list.map((s) => {
+          const active = r.running === s.id;
+          const finished = r.running === null && r.lastResult !== null && r.lastResult.id === s.id;
+          return (
+            <div key={s.id} className="scrow">
+              <div className="scrowhead">
+                <button
+                  className="scbtn"
+                  title={s.description}
+                  disabled={r.running !== null}
+                  onClick={() => void r.runScenario(s)}
+                >
+                  ▶ {s.name}
+                </button>
+                <span className="sctags">
+                  {s.registerTypes.map((t) => (
+                    <span key={t} className={`sctag${t === registerType ? ' on' : ''}`} title={REGISTER_TAG_TITLE[t]}>
+                      {REGISTER_TAG[t]}
+                    </span>
+                  ))}
+                </span>
+                {active && (
+                  <button className="scstop" onClick={r.cancel}>
+                    Stop
+                  </button>
+                )}
+              </div>
+              {active && <StepRows steps={r.progress} />}
+              {finished && r.lastResult && <RunOutcome result={r.lastResult.result} />}
+            </div>
+          );
+        })}
+        {strayRunning && (
+          <div className="scrow">
+            <div className="scrowhead">
+              <span className="scname">{r.runningName ?? r.running}</span>
+              <button className="scstop" onClick={r.cancel}>
+                Stop
+              </button>
+            </div>
+            <StepRows steps={r.progress} />
+          </div>
+        )}
+        {strayResult && (
+          <div className="scrow">
+            <div className="scrowhead">
+              <span className="scname">{strayResult.name}</span>
+            </div>
+            <RunOutcome result={strayResult.result} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function App(): JSX.Element {
   const e = useEmulator();
+  // One runner shared by the Scenarios panel and the per-ad Silent ▶ buttons,
+  // so "one run at a time" holds across both entry points.
+  const r = useScenarioRunner(e);
   const { snapshot } = e;
   const locale = snapshot.locale;
   // Tender/void only make sense with a live basket; disabled when empty so they
   // can't spawn stray transactions or be spammed.
   const hasItems = snapshot.lines.some((l) => !l.voided);
 
+  // Right column shows either the Wire Log or the Scenarios panel. Starting a
+  // run (incl. per-ad Silent ▶ from the left column) switches to Scenarios so
+  // the step ticker is visible.
+  const [rightTab, setRightTab] = useState<'log' | 'scenarios'>('log');
+  const running = r.running;
+  useEffect(() => {
+    if (running !== null) setRightTab('scenarios');
+  }, [running]);
+
+  // Scenario knobs, persisted like the other r6ca.* localStorage settings.
+  const [loyaltyCard, setLoyaltyCardState] = useState<string>(() => {
+    try {
+      return localStorage.getItem(SCENARIO_CARD_KEY) ?? DEFAULT_SCENARIO_CARD;
+    } catch {
+      return DEFAULT_SCENARIO_CARD;
+    }
+  });
+  const [stepGapMs, setStepGapMsState] = useState<number>(() => {
+    try {
+      const raw = localStorage.getItem(SCENARIO_GAP_KEY);
+      const n = raw === null ? NaN : Number(raw);
+      return Number.isFinite(n) && n >= 0 ? n : DEFAULT_STEP_GAP_MS;
+    } catch {
+      return DEFAULT_STEP_GAP_MS;
+    }
+  });
+  const setLoyaltyCard = useCallback((card: string) => {
+    setLoyaltyCardState(card);
+    try {
+      localStorage.setItem(SCENARIO_CARD_KEY, card);
+    } catch {
+      // ignore storage failures (private mode etc.)
+    }
+  }, []);
+  const setStepGapMs = useCallback((ms: number) => {
+    setStepGapMsState(ms);
+    try {
+      localStorage.setItem(SCENARIO_GAP_KEY, String(ms));
+    } catch {
+      // ignore storage failures (private mode etc.)
+    }
+  }, []);
+  const [upcCoupon12, setUpcCoupon12State] = useState<string>(() => {
+    try {
+      return localStorage.getItem(SCENARIO_COUPON_KEY) ?? DEFAULT_UPC_COUPON;
+    } catch {
+      return DEFAULT_UPC_COUPON;
+    }
+  });
+  const setUpcCoupon12 = useCallback((upc: string) => {
+    setUpcCoupon12State(upc);
+    try {
+      localStorage.setItem(SCENARIO_COUPON_KEY, upc);
+    } catch {
+      // ignore storage failures (private mode etc.)
+    }
+  }, []);
+
+  // Item codes for the canned scenarios: first two quick keys, falling back to
+  // the derived quick-key picks, then the bundled PRICEBOOK constants.
+  const params = useMemo<ScenarioParams>(() => {
+    const qkEntries = e.quickKeyFiles[0]?.entries ?? [];
+    return {
+      itemCode: qkEntries[0]?.upc ?? e.quickKeys[0]?.code ?? PRICEBOOK[0].code,
+      itemCode2: qkEntries[1]?.upc ?? e.quickKeys[1]?.code ?? PRICEBOOK[1].code,
+      loyaltyCard,
+      upcCoupon12,
+      stepGapMs,
+    };
+  }, [e.quickKeyFiles, e.quickKeys, loyaltyCard, upcCoupon12, stepGapMs]);
+
   return (
     <div className="app">
       <header className="bar">
-        <strong>Canada Emulator</strong>
+        <strong>CKEmulator 2.0</strong>
         <span className="conn">
           <Dot state={e.status.vj} /> VJ {e.config.host}:{e.config.vjPort}
           <Dot state={e.status.pole} /> Pole {e.config.host}:{e.config.polePort}
@@ -307,10 +609,16 @@ function App(): JSX.Element {
         <button onClick={() => void e.connect()}>Connect</button>
         <button onClick={() => void e.disconnect()}>Disconnect</button>
         <span className="spacer" />
-        <div className="locale">
-          <button className={locale === 'en' ? 'on' : ''} onClick={() => e.setLocale('en')}>EN-CA</button>
-          <button className={locale === 'fr' ? 'on' : ''} onClick={() => e.setLocale('fr')}>FR-CA</button>
-        </div>
+        {/* US lanes are en-US only — hide the toggle there. Switching to US
+            while fr is active is already coherent: the session rebuild carries
+            locale through RegisterSession.setLocale, which ignores 'fr' in US
+            mode, so the fresh snapshot reads 'en'. */}
+        {e.config.registerType !== 'radiant6-us' && (
+          <div className="locale">
+            <button className={locale === 'en' ? 'on' : ''} onClick={() => e.setLocale('en')}>EN-CA</button>
+            <button className={locale === 'fr' ? 'on' : ''} onClick={() => e.setLocale('fr')}>FR-CA</button>
+          </div>
+        )}
       </header>
 
       <header className="bar creds">
@@ -358,7 +666,7 @@ function App(): JSX.Element {
           <LoyaltyInput e={e} />
 
           <h3>Triggers &amp; Completers</h3>
-          <TriggersCompleters e={e} />
+          <TriggersCompleters e={e} r={r} params={params} />
         </section>
 
         <section className="center">
@@ -417,17 +725,38 @@ function App(): JSX.Element {
 
         <section className="right">
           <div className="loghead">
-            <h3>Wire Log</h3>
-            <button onClick={e.clearLog}>clear</button>
+            <div className="tabs">
+              <button className={rightTab === 'scenarios' ? 'on' : ''} onClick={() => setRightTab('scenarios')}>
+                Scenarios
+              </button>
+              <button className={rightTab === 'log' ? 'on' : ''} onClick={() => setRightTab('log')}>
+                Wire Log
+              </button>
+            </div>
+            {rightTab === 'log' && <button onClick={e.clearLog}>clear</button>}
           </div>
-          <div className="log">
-            {e.log.map((l) => (
-              <div key={l.id} className={`logline ${l.channel}`}>
-                <span className="tag">{l.channel.toUpperCase()}</span>
-                <code>{l.text}</code>
-              </div>
-            ))}
-          </div>
+          {rightTab === 'scenarios' ? (
+            <Scenarios
+              e={e}
+              r={r}
+              params={params}
+              loyaltyCard={loyaltyCard}
+              setLoyaltyCard={setLoyaltyCard}
+              stepGapMs={stepGapMs}
+              setStepGapMs={setStepGapMs}
+              upcCoupon12={upcCoupon12}
+              setUpcCoupon12={setUpcCoupon12}
+            />
+          ) : (
+            <div className="log">
+              {e.log.map((l) => (
+                <div key={l.id} className={`logline ${l.channel}`}>
+                  <span className="tag">{l.channel.toUpperCase()}</span>
+                  <code>{l.text}</code>
+                </div>
+              ))}
+            </div>
+          )}
         </section>
       </div>
     </div>

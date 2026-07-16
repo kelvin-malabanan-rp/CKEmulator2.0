@@ -28,9 +28,14 @@ export interface AdTriggersCompleters {
   template: string;
   triggers: AdItem[];
   completers: AdItem[];
+  /** Distinct completer conditiontype values (e.g. 'injectItem', 'xFor'). */
+  completerConditionTypes: string[];
+  /** True when a completer can auto-inject with no cashier tap. */
+  silentCapable: boolean;
 }
 
 interface RawCondition {
+  conditiontype?: string;
   items?: Array<string | Record<string, unknown>>;
   upc?: string;
   itemcode?: string;
@@ -134,8 +139,14 @@ export function extractTriggersCompleters(ad: RawAdConfig): AdTriggersCompleters
     triggers.push(...itemsFromGroup(group, group.adtriggerconditions ?? []));
   }
   const completers: AdItem[] = [];
+  const types = new Set<string>();
   for (const group of ad.adcompleters ?? []) {
-    completers.push(...itemsFromGroup(group, group.adcompleterconditions ?? []));
+    const conditions = group.adcompleterconditions ?? [];
+    completers.push(...itemsFromGroup(group, conditions));
+    for (const cond of conditions) {
+      const type = str(cond.conditiontype);
+      if (type) types.add(type);
+    }
   }
   return {
     id: str(ad.id),
@@ -143,6 +154,8 @@ export function extractTriggersCompleters(ad: RawAdConfig): AdTriggersCompleters
     template: str(ad.templatename),
     triggers: dedupeByCode(triggers),
     completers: dedupeByCode(completers),
+    completerConditionTypes: [...types],
+    silentCapable: types.has('injectItem') || types.has('addDiscount'),
   };
 }
 
@@ -165,4 +178,14 @@ export function orderAds(ads: AdTriggersCompleters[]): AdTriggersCompleters[] {
 /** Order manifest entries by name (case-insensitive). */
 export function orderManifest(ads: AdManifestEntry[]): AdManifestEntry[] {
   return [...ads].sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+}
+
+/**
+ * Whether a raw ad doc is a legitimate ad rather than a config entry stored in
+ * the ads collection. Config entries have templatenames ending in "Config"
+ * (e.g. "Beat The Target Config", "Top 5 Promos Config").
+ */
+export function isLegitimateAd(ad: RawAdConfig): boolean {
+  const t = (ad.templatename ?? '').trim().toLowerCase();
+  return t !== '' && !t.endsWith('config');
 }

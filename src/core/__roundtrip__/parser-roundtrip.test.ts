@@ -50,6 +50,17 @@ describe('round-trip: VJ encoder → CKPlayer2.0 Radiant6CanadaMessageParser', (
     expect(vjActions(enc.basketStarted({ tx: 1 }))).toContain('BASKET_START');
   });
 
+  it('basketSuspend decodes to BASKET_SUSPEND', () => {
+    expect(vjActions(enc.basketSuspend({ tx: 7 }))).toContain('BASKET_SUSPEND');
+  });
+
+  it('basketResume decodes to BASKET_RESUME carrying the suspended tx', () => {
+    const events = Radiant6CanadaMessageParser.parseLine(SOURCE, enc.basketResume({ tx: 8, storedTx: 7 }), vjCtx())!;
+    const resume = events.find((e) => e.action === 'BASKET_RESUME')!;
+    expect(resume).toBeDefined();
+    expect(resume.data.lastTransactId).toBe(7);
+  });
+
   it('itemAdd decodes to SCAN_RECEIVED + ITEM_ADDED + POLEDISP_UPDATED with correct fields', () => {
     const ctx = vjCtx();
     const events = Radiant6CanadaMessageParser.parseLine(
@@ -60,7 +71,7 @@ describe('round-trip: VJ encoder → CKPlayer2.0 Radiant6CanadaMessageParser', (
     const actions = events.map((e) => e.action);
     expect(actions).toEqual(expect.arrayContaining(['SCAN_RECEIVED', 'ITEM_ADDED', 'POLEDISP_UPDATED']));
     const itemAdded = events.find((e) => e.action === 'ITEM_ADDED')!;
-    expect(itemAdded.data.code).toBe('049000000443');
+    expect(itemAdded.data.upc).toBe('049000000443');
     expect(itemAdded.data.description).toBe('Coke');
     expect(itemAdded.data.price).toBeCloseTo(1.69, 5);
   });
@@ -89,6 +100,28 @@ describe('round-trip: VJ encoder → CKPlayer2.0 Radiant6CanadaMessageParser', (
     const loyalty = events.find((e) => e.action === 'LOYALTY_OR_UPC_SCANNED')!;
     expect(loyalty).toBeDefined();
     expect(loyalty.data.loyaltyOrUpc?.discountCardNumber).toBe('8018782603800034999992');
+  });
+
+  it('US-mode subtotal (1005) / tax (1020) are gracefully ignored by the CA parser', () => {
+    // The CA parser has no 1005/1020 handlers: unknown EventIds fall through
+    // and return an empty event array (no throw, no null — asserted via
+    // parseLine directly, since vjActions() would mask a null).
+    expect(Radiant6CanadaMessageParser.parseLine(SOURCE, enc.subtotal({ tx: 3, amountCents: 1716 }), vjCtx())).toEqual([]);
+    expect(Radiant6CanadaMessageParser.parseLine(SOURCE, enc.tax({ tx: 3, amountCents: 43 }), vjCtx())).toEqual([]);
+    expect(vjActions(enc.subtotal({ tx: 3, amountCents: 1716 }))).toEqual([]);
+    expect(vjActions(enc.tax({ tx: 3, amountCents: 43 }))).toEqual([]);
+  });
+
+  it('totals-carrying basketEnd (US mode) still decodes to BASKET_END (extra fields ignored)', () => {
+    const actions = vjActions(
+      enc.basketEnd({
+        tx: 3,
+        type: 'Sales',
+        completion: 'Completed',
+        totals: { subtotalCents: 1716, taxCents: 43, totalCents: 1759 },
+      }),
+    );
+    expect(actions).toContain('BASKET_END');
   });
 
   it('NEVER emits 1005/1020, so the parser never sees subtotal/tax on the VJ', () => {

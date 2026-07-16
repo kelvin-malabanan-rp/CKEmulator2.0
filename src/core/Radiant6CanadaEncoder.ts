@@ -8,8 +8,10 @@
  *   ../CKPlayer2.0/electron/plugins/radiant6-canada/Radiant6CanadaPoleDisplayParser.ts
  *
  * Canada policy honoured here:
- *   - Tax/balance are pole-authoritative — this encoder NEVER emits VJ
- *     EventId 1005 (subtotal) or 1020 (tax).
+ *   - Tax/balance are pole-authoritative in Canada — never emitting VJ
+ *     EventId 1005 (subtotal) or 1020 (tax) is Canada policy enforced by
+ *     RegisterSession (radiant6-canada mode). The encoder itself provides
+ *     `subtotal` (1005) and `tax` (1020) for the radiant6-us mode.
  *   - Cash rounding emits EventId 1022 Description=Arrondir.
  *   - EasyPay loyalty emits EventId 1024 (the 12-digit-UPC discriminator runs
  *     player-side; the encoder just carries the card number).
@@ -90,15 +92,67 @@ export class Radiant6CanadaEncoder {
     ]);
   }
 
+  /**
+   * EventId 1002 — basket end. `totals` is US-mode only: the legacy US
+   * register stamps SubtotalAmount/TaxAmount/TotalAmount on the 1002 line
+   * (liftck_player Radiant6RegisterEmulator.java:296). Canada omits them —
+   * pole-authoritative; RegisterSession enforces the policy.
+   */
   basketEnd(args: {
     tx: number;
     type: 'Sales' | 'Refund' | 'Cancelled';
     completion: 'Completed' | 'Cancelled';
+    totals?: { subtotalCents: number; taxCents: number; totalCents: number };
   }): string {
     return this.eventLine(1002, [
       ['TransactionNumber', args.tx],
       ['TransactionType', args.type],
       ['TransactionCompletionType', args.completion],
+      ...(args.totals !== undefined
+        ? ([
+            ['SubtotalAmount', wireAmount(args.totals.subtotalCents, 'en')],
+            ['TaxAmount', wireAmount(args.totals.taxCents, 'en')],
+            ['TotalAmount', wireAmount(args.totals.totalCents, 'en')],
+          ] as Field[])
+        : []),
+    ]);
+  }
+
+  /**
+   * EventId 1005 — running subtotal. US mode only: the legacy US register
+   * emits 1020 (tax) then 1005 (subtotal) after every item mutation
+   * (liftck_player Radiant6RegisterEmulator.java:149-150). Canada is
+   * pole-authoritative and never sends this; RegisterSession enforces
+   * the policy.
+   */
+  subtotal(args: { tx: number; amountCents: number }): string {
+    return this.eventLine(1005, [
+      ['TransactionNumber', args.tx],
+      ['Amount', wireAmount(args.amountCents, 'en')],
+    ]);
+  }
+
+  /**
+   * EventId 1020 — running tax. US mode only (see `subtotal`); emitted
+   * before 1005 in the legacy order. Canada never sends this;
+   * RegisterSession enforces the policy.
+   */
+  tax(args: { tx: number; amountCents: number }): string {
+    return this.eventLine(1020, [
+      ['TransactionNumber', args.tx],
+      ['Amount', wireAmount(args.amountCents, 'en')],
+    ]);
+  }
+
+  basketSuspend(args: { tx: number }): string {
+    return this.eventLine(1003, [['TransactionNumber', args.tx]]);
+  }
+
+  /** EventId 1004 — resume. `storedTx` is the suspended transaction being recalled. */
+  basketResume(args: { tx: number; storedTx?: number }): string {
+    return this.eventLine(1004, [
+      ['TransactionNumber', args.tx],
+      ...(args.storedTx !== undefined ? [['StoredTransactionNumber', args.storedTx] as Field] : []),
     ]);
   }
 

@@ -24,6 +24,24 @@ describe('Radiant6CanadaEncoder — VJ session events', () => {
     expect(line).toContain('EventId=1002');
     expect(line).toContain('TransactionType=Sales,TransactionCompletionType=Completed');
   });
+
+  it('basketSuspend (1003) carries the transaction number', () => {
+    expect(enc().basketSuspend({ tx: 7 })).toBe(
+      'EventId=1003,TerminalNumber=1,EventTime=2023-01-01T00:00:00.000,TransactionNumber=7\r\n',
+    );
+  });
+
+  it('basketResume (1004) carries the transaction number', () => {
+    expect(enc().basketResume({ tx: 7 })).toBe(
+      'EventId=1004,TerminalNumber=1,EventTime=2023-01-01T00:00:00.000,TransactionNumber=7\r\n',
+    );
+  });
+
+  it('basketResume (1004) carries StoredTransactionNumber when the suspended tx is known', () => {
+    expect(enc().basketResume({ tx: 8, storedTx: 7 })).toBe(
+      'EventId=1004,TerminalNumber=1,EventTime=2023-01-01T00:00:00.000,TransactionNumber=8,StoredTransactionNumber=7\r\n',
+    );
+  });
 });
 
 describe('Radiant6CanadaEncoder — item lifecycle VJ events', () => {
@@ -83,6 +101,38 @@ describe('Radiant6CanadaEncoder — tender / change / Arrondir / loyalty', () =>
     ].join('');
     expect(all).not.toContain('EventId=1005');
     expect(all).not.toContain('EventId=1020');
+  });
+});
+
+describe('Radiant6CanadaEncoder — US-mode subtotal (1005) / tax (1020) / basket-end totals', () => {
+  it('encodes 1005 subtotal and 1020 tax (US mode)', () => {
+    expect(enc().subtotal({ tx: 3, amountCents: 1716 })).toBe(
+      'EventId=1005,TerminalNumber=1,EventTime=2023-01-01T00:00:00.000,TransactionNumber=3,Amount=17.16\r\n',
+    );
+    expect(enc().subtotal({ tx: 3, amountCents: 1716 })).toContain('EventId=1005');
+    expect(enc().subtotal({ tx: 3, amountCents: 1716 })).toContain('Amount=17.16');
+    expect(enc().tax({ tx: 3, amountCents: 43 })).toBe(
+      'EventId=1020,TerminalNumber=1,EventTime=2023-01-01T00:00:00.000,TransactionNumber=3,Amount=0.43\r\n',
+    );
+    expect(enc().tax({ tx: 3, amountCents: 43 })).toContain('EventId=1020');
+    expect(enc().tax({ tx: 3, amountCents: 43 })).toContain('Amount=0.43');
+  });
+
+  it('basketEnd carries US totals when provided', () => {
+    const line = enc().basketEnd({
+      tx: 3,
+      type: 'Sales',
+      completion: 'Completed',
+      totals: { subtotalCents: 1716, taxCents: 43, totalCents: 1759 },
+    });
+    expect(line).toBe(
+      'EventId=1002,TerminalNumber=1,EventTime=2023-01-01T00:00:00.000,TransactionNumber=3,TransactionType=Sales,TransactionCompletionType=Completed,SubtotalAmount=17.16,TaxAmount=0.43,TotalAmount=17.59\r\n',
+    );
+    expect(line).toContain('SubtotalAmount=17.16,TaxAmount=0.43,TotalAmount=17.59');
+  });
+
+  it('basketEnd omits totals when not provided (CA)', () => {
+    expect(enc().basketEnd({ tx: 3, type: 'Sales', completion: 'Completed' })).not.toContain('SubtotalAmount');
   });
 });
 

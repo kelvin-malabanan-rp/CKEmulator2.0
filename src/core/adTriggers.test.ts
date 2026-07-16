@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   extractTriggersCompleters,
+  isLegitimateAd,
   orderAds,
   isInteractiveTemplate,
   type AdTriggersCompleters,
@@ -87,6 +88,58 @@ describe('isInteractiveTemplate', () => {
     expect(isInteractiveTemplate('Basket Offer')).toBe(true);
     expect(isInteractiveTemplate('2 Or 3 For')).toBe(true);
     expect(isInteractiveTemplate('Combo')).toBe(true);
+  });
+});
+
+describe('completer condition types', () => {
+  it('collects conditiontype values from completer conditions', () => {
+    const out = extractTriggersCompleters({
+      id: 1,
+      name: 'Silent Deal',
+      adcompleters: [
+        { adcompleterconditions: [{ conditiontype: 'injectItem', itemcode: '111' }] },
+        { adcompleterconditions: [{ conditiontype: 'xFor', items: ['222'] }] },
+      ],
+    });
+    expect(out.completerConditionTypes).toEqual(['injectItem', 'xFor']);
+    expect(out.silentCapable).toBe(true);
+  });
+
+  it('silentCapable is true for addDiscount, false otherwise', () => {
+    const mk = (t: string): boolean =>
+      extractTriggersCompleters({
+        id: 2,
+        adcompleters: [{ adcompleterconditions: [{ conditiontype: t, itemcode: '1' }] }],
+      }).silentCapable;
+    expect(mk('addDiscount')).toBe(true);
+    expect(mk('addItem')).toBe(false);
+    expect(mk('completePromo')).toBe(false);
+  });
+
+  it('handles ads with no completers', () => {
+    const out = extractTriggersCompleters({ id: 3, name: 'x' });
+    expect(out.completerConditionTypes).toEqual([]);
+    expect(out.silentCapable).toBe(false);
+  });
+});
+
+describe('isLegitimateAd', () => {
+  it('returns true for ads with a real template', () => {
+    expect(isLegitimateAd({ id: 1, name: 'Combo Deal', templatename: 'Basket Offer' })).toBe(true);
+    expect(isLegitimateAd({ id: 2, name: 'Walkup', templatename: 'Static Image Or Video' })).toBe(true);
+    expect(isLegitimateAd({ id: 3, name: '2 For $5', templatename: '2 Or 3 For' })).toBe(true);
+  });
+
+  it('returns false for config entries (templatename ends with "Config")', () => {
+    expect(isLegitimateAd({ id: 10, name: 'Beat the Target', templatename: 'Beat The Target Config' })).toBe(false);
+    expect(isLegitimateAd({ id: 11, name: 'Top 5 Promos', templatename: 'Top 5 Promos Config' })).toBe(false);
+    expect(isLegitimateAd({ id: 12, name: 'Multi-Location', templatename: 'Beat The Target Config Multi-Location Config' })).toBe(false);
+  });
+
+  it('returns false for entries with no/empty templatename', () => {
+    expect(isLegitimateAd({ id: 20, name: 'NoTemplate' })).toBe(false);
+    expect(isLegitimateAd({ id: 21, name: 'Empty', templatename: '' })).toBe(false);
+    expect(isLegitimateAd({ id: 22, name: 'Spaces', templatename: '   ' })).toBe(false);
   });
 });
 

@@ -127,6 +127,43 @@ h3 { margin: 9px 0 5px; font-size: 13px; text-transform: uppercase; letter-spaci
 .tcitem:hover { border-color: #2d6cdf; }
 .tcitem span { font-size: 11px; line-height: 1.2; }
 .tcitem small { color: #9aa; font-family: ui-monospace, Menlo, monospace; font-size: 10px; }
+/* Scenarios */
+.scenarios { display: flex; flex-direction: column; gap: 6px; }
+.scparams { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.scparams label { display: flex; align-items: center; gap: 5px; font-size: 11px; color: #8b93a3; min-width: 0; }
+.scparams label:first-child { flex: 1; }
+.scparams input { background: #14161a; border: 1px solid #333; color: #e7e9ee; border-radius: 4px; padding: 5px 7px; font-size: 12px; min-width: 0; }
+.scparams input.sccard { flex: 1; }
+.scparams input.scgap { width: 72px; }
+.scparams input.sccoupon { width: 118px; font-variant-numeric: tabular-nums; }
+.sclist { display: flex; flex-direction: column; gap: 5px; }
+.scrow { display: flex; flex-direction: column; gap: 5px; background: #20242b; border: 1px solid #2a2e37; border-radius: 6px; padding: 6px 8px; }
+.scrowhead { display: flex; align-items: center; gap: 6px; }
+.scbtn { flex: 1; min-width: 0; text-align: left; background: #2a2e37; color: #cdd2db; border: 1px solid #363b45; border-radius: 5px; padding: 7px 10px; font-size: 12px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scbtn:hover:not(:disabled) { border-color: #2d6cdf; }
+.scbtn:disabled { opacity: .5; cursor: default; }
+.scstop { background: #8a3b32; color: #fff; border: 0; border-radius: 5px; padding: 7px 12px; font-size: 12px; cursor: pointer; flex-shrink: 0; }
+.scstop:hover { background: #a04a3f; }
+.scname { flex: 1; min-width: 0; font-size: 12px; color: #cdd2db; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sctags { display: flex; gap: 3px; flex-shrink: 0; }
+.sctag { font-size: 9px; font-weight: 700; letter-spacing: .5px; color: #7e8696; background: #2a2e37; border: 1px solid #363b45; border-radius: 3px; padding: 2px 4px; }
+.sctag.on { color: #fff; background: #2d6cdf; border-color: #2d6cdf; }
+.steplist { display: flex; flex-direction: column; gap: 2px; }
+.steprow { display: flex; align-items: baseline; gap: 6px; font-size: 11px; color: #aab; min-width: 0; }
+.steprow .stepnum { color: #7e8696; font-family: ui-monospace, Menlo, monospace; flex-shrink: 0; }
+.steprow .stepkind { flex-shrink: 0; }
+.steprow .stepglyph { flex-shrink: 0; }
+.steprow .stepglyph.ok { color: #3ec46d; }
+.steprow .stepglyph.fail { color: #d9534f; }
+.steprow .stepglyph.running { color: #e6b450; }
+.steprow .stepglyph.pending, .steprow .stepglyph.skipped { color: #5a6270; }
+.steprow .stepdetail { color: #7e8696; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scresult { display: flex; flex-direction: column; gap: 4px; }
+.badge-pass, .badge-fail, .badge-cancel { align-self: flex-start; max-width: 100%; font-size: 11px; font-weight: 700; letter-spacing: .5px; padding: 2px 8px; border-radius: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.badge-pass { background: #0a5a3b; color: #7fe0ae; }
+.badge-fail { background: #5a201a; color: #e2777f; }
+.badge-cancel { background: #3a3f4a; color: #aab; }
+
 .row { display: flex; gap: 6px; flex-wrap: wrap; }
 .row input { flex: 1 1 80px; min-width: 0; background: #14161a; border: 1px solid #333; color: #e7e9ee; border-radius: 4px; padding: 6px; }
 .row button, .tender button, .lineactions button, .loghead button { background: #2d6cdf; color: #fff; border: 0; border-radius: 4px; padding: 6px 10px; cursor: pointer; }
@@ -156,6 +193,9 @@ h3 { margin: 9px 0 5px; font-size: 13px; text-transform: uppercase; letter-spaci
 
 .loghead { display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 2; background: #16181d; margin: -12px -12px 6px; padding: 12px 12px 6px; }
 .loghead button { background: #3a3f4a; padding: 3px 8px; font-size: 12px; }
+.loghead .tabs { display: flex; gap: 4px; }
+.loghead .tabs button { text-transform: uppercase; letter-spacing: .5px; font-weight: 600; color: #8b93a3; }
+.loghead .tabs button.on { background: #2d6cdf; color: #fff; }
 .log { font-family: ui-monospace, Menlo, monospace; font-size: 11px; }
 .logline { display: flex; gap: 6px; padding: 3px 0; border-bottom: 1px solid #20242b; align-items: baseline; }
 .logline code { white-space: pre-wrap; word-break: break-all; }
