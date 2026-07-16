@@ -48,21 +48,24 @@ stubs in the legacy `liftck_player` emulator module.
   socket is opened** for Bulloch (items are pole-authoritative).
 
 **Verifone Topaz** (`verifone-topaz` register type)
-- **Virtual Journal** (TCP, default `127.0.0.1:5441`): plaintext lines framed
+- **Virtual Journal** (TCP, default `127.0.0.1:10002`): plaintext lines framed
   `MM/dd/yy HH:mm:ss <registerId> <payload>` — item add/void, `Sub Total`,
   `Tax`, `Total`, `CASH` tender, `LOYALTY <digits>`, `VOID TICKET`,
   `TRANSACTION SUSPENDED`, `CSH:` cashier, `ST#…TRAN#` basket end. The VJ is
   authoritative; money is dollars on the wire; no cash rounding.
-- **Pole Display** (TCP, default `127.0.0.1:5442`): `ESC l \x01 \x01|\x02` +
+- **Pole Display** (TCP, default `127.0.0.1:10001`): `ESC l \x01 \x01|\x02` +
   20-char frames — `TOTAL`, `CASH` tender, `CHANGE`, item mirrors.
-- **Barcode scanner** (TCP, default `127.0.0.1:5443`): one CRLF-terminated
+- **Barcode scanner** (TCP, default `127.0.0.1:10000`): one CRLF-terminated
   barcode per scan, echoed before each coded item add (`register.confirmScans`
   flow).
 - In prod all three Topaz feeds are **serial COM ports** (scanner COM1, pole
-  COM2, VJ COM3 — LIFT-2669); ports 5441-5443 are this emulator's TCP
-  convention. Point the player at them with `virtualjournal.ioParams=TCP:5441`,
-  `poledisplay.ioParams=TCP:5442`, `scanner.ioParams=TCP:5443` (CKP2.0's
-  `IODeviceFactory` accepts `TCP:<port>` and listens).
+  COM2, VJ COM3 — LIFT-2669); the TCP ports follow the **legacy dev
+  convention** (liftck_player `system.properties`, release/8.2.8.0): scanner
+  `10000`, pole `10001`, VJ `10002`. Point the player at them with
+  `scanner.ioParams=TCP:10000`, `poledisplay.ioParams=TCP:10001`,
+  `virtualjournal.ioParams=TCP:10002` (CKP2.0's `IODeviceFactory` accepts
+  `TCP:<port>` and listens) — CKP2.0's `system.properties` Topaz block
+  already ships these values.
 
 Canada rules honoured: tax/balance are **pole-authoritative** (the Radiant6
 Canada VJ never emits `1005`/`1020`); cash rounds to the nearest 5¢ and emits

@@ -57,11 +57,11 @@ describe('register types & ports', () => {
     expect(REGISTER_TYPES.find((r) => r.value === 'bulloch')?.label).toBe('Bulloch');
   });
 
-  it('maps Verifone Topaz to VJ 5441 / pole 5442 / scanner 5443 (emulator TCP convention)', () => {
+  it('maps Verifone Topaz to VJ 10002 / pole 10001 / scanner 10000 (legacy dev TCP convention)', () => {
     expect(portsForRegisterType('verifone-topaz')).toEqual({
-      vjPort: 5441,
-      polePort: 5442,
-      scannerPort: 5443,
+      vjPort: 10002,
+      polePort: 10001,
+      scannerPort: 10000,
     });
   });
 
@@ -69,9 +69,9 @@ describe('register types & ports', () => {
     expect(REGISTER_TYPES.find((r) => r.value === 'verifone-topaz')).toEqual({
       value: 'verifone-topaz',
       label: 'Verifone Topaz',
-      vjPort: 5441,
-      polePort: 5442,
-      scannerPort: 5443,
+      vjPort: 10002,
+      polePort: 10001,
+      scannerPort: 10000,
     });
   });
 

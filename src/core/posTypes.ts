@@ -24,11 +24,13 @@ export type RegisterType = 'radiant6-canada' | 'radiant6-us' | 'bulloch' | 'veri
  * (legacy `debug1.properties`: "Bulloch typically listens on TCP 5440").
  *
  * Verifone Topaz has NO prod TCP ports — the player binds serial COM ports
- * (scanner COM1, pole COM2, VJ COM3 per LIFT-2669). For emulation the
- * player's ioParams are overridden to TCP, so 5441-5443 are a NET-NEW
- * emulator convention (next free after Bulloch's 5440), mirrored in the
- * player's dev settings: `virtualjournal.ioParams=TCP:5441`,
- * `poledisplay.ioParams=TCP:5442`, `scanner.ioParams=TCP:5443`.
+ * (scanner COM1, pole COM2, VJ COM3 per LIFT-2669). For local dev the ports
+ * follow the LEGACY emulator convention (liftck_player release/8.2.8.0
+ * `system.properties`: "io devices are redirected to TCP for local
+ * connection to emulator"): `scanner.ioParams=TCP:10000`,
+ * `poledisplay.ioParams=TCP:10001`, `virtualjournal.ioParams=TCP:10002`
+ * — already mirrored in CKP2.0's `system.properties` Topaz block. Note the
+ * ordering: scanner is the LOWEST port and the VJ the HIGHEST.
  */
 export const REGISTER_TYPES: ReadonlyArray<{
   value: RegisterType;
@@ -40,7 +42,7 @@ export const REGISTER_TYPES: ReadonlyArray<{
   { value: 'radiant6-canada', label: 'Radiant6 Canada', vjPort: 5438, polePort: 5439 },
   { value: 'radiant6-us', label: 'Radiant6 US', vjPort: 5438, polePort: 5439 },
   { value: 'bulloch', label: 'Bulloch', vjPort: 5438, polePort: 5440 },
-  { value: 'verifone-topaz', label: 'Verifone Topaz', vjPort: 5441, polePort: 5442, scannerPort: 5443 },
+  { value: 'verifone-topaz', label: 'Verifone Topaz', vjPort: 10002, polePort: 10001, scannerPort: 10000 },
 ];
 
 /** Look up the VJ/pole (and, for Topaz, scanner) ports for a register type. */
