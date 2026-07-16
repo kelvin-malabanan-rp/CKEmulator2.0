@@ -75,9 +75,35 @@ describe('builtinScenarios', () => {
 
   it('edit-heavy-sale runs on all register types and ends with next-dollar tender', () => {
     const s = builtinScenarios(params).find((x) => x.id === 'edit-heavy-sale')!;
-    expect(s.registerTypes).toEqual(['radiant6-canada', 'radiant6-us', 'bulloch']);
+    expect(s.registerTypes).toEqual(['radiant6-canada', 'radiant6-us', 'bulloch', 'verifone-topaz']);
     const last = s.steps[s.steps.length - 1];
     expect(last).toMatchObject({ kind: 'tender', tenderKind: 'next-dollar' });
+  });
+
+  it('journal-driven scenarios run on verifone-topaz', () => {
+    const all = builtinScenarios(params);
+    for (const id of ['loyalty-signin', 'edit-heavy-sale', 'suspend-resume']) {
+      const s = all.find((x) => x.id === id)!;
+      expect(s.registerTypes, id).toContain('verifone-topaz');
+    }
+  });
+
+  it('EventId-dependent and lane-specific scenarios stay off verifone-topaz', () => {
+    // Topaz is plaintext-only: no EventId 1024 loyalty (upc-as-coupon) and no
+    // EventId 2001 inject reverse-channel (silent/manual completer), no fr-CA,
+    // no arrondir, no Bulloch protocol.
+    const all = builtinScenarios(params);
+    for (const id of [
+      'silent-loyalty-injection',
+      'manual-completer',
+      'upc-as-coupon',
+      'arrondir-rounding',
+      'fr-ca-sale',
+      'bulloch-full-sale',
+    ]) {
+      const s = all.find((x) => x.id === id)!;
+      expect(s.registerTypes, id).not.toContain('verifone-topaz');
+    }
   });
 
   it('manual-completer waits longer for a cashier tap than the silent scenario', () => {

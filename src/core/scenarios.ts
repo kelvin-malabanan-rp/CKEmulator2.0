@@ -75,7 +75,7 @@ export function builtinScenarios(p: ScenarioParams): Scenario[] {
       name: 'Loyalty sign-in',
       description:
         'Scan an item, then swipe the loyalty card mid-transaction — watch the player switch to the signed-in member experience.',
-      registerTypes: ['radiant6-canada', 'radiant6-us'],
+      registerTypes: ['radiant6-canada', 'radiant6-us', 'verifone-topaz'],
       steps: [{ kind: 'scan', code: p.itemCode }, gap, { kind: 'loyalty', cardNumber: p.loyaltyCard }],
     },
     {
@@ -115,7 +115,7 @@ export function builtinScenarios(p: ScenarioParams): Scenario[] {
       name: 'Edit-heavy sale',
       description:
         'Scan two items, change quantity and price, void a line, then tender to the next dollar — watch the player basket track every edit and the change due.',
-      registerTypes: ['radiant6-canada', 'radiant6-us', 'bulloch'],
+      registerTypes: ['radiant6-canada', 'radiant6-us', 'bulloch', 'verifone-topaz'],
       steps: [
         { kind: 'scan', code: p.itemCode },
         { kind: 'scan', code: p.itemCode2 },
@@ -159,7 +159,7 @@ export function builtinScenarios(p: ScenarioParams): Scenario[] {
       name: 'Suspend / resume ticket',
       description:
         'Scan an item, suspend the ticket, resume it, then tender — watch the player clear the basket on suspend and restore it on resume.',
-      registerTypes: ['radiant6-canada', 'radiant6-us'],
+      registerTypes: ['radiant6-canada', 'radiant6-us', 'verifone-topaz'],
       steps: [
         { kind: 'scan', code: p.itemCode },
         { kind: 'suspend' },
