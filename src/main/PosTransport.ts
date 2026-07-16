@@ -42,6 +42,7 @@ export class PosTransport {
     this.conns = {
       vj: { socket: null, state: 'disconnected', port: config.vjPort, reconnectTimer: null },
       pole: { socket: null, state: 'disconnected', port: config.polePort, reconnectTimer: null },
+      scanner: { socket: null, state: 'disconnected', port: config.scannerPort ?? 0, reconnectTimer: null },
     };
   }
 
@@ -49,12 +50,17 @@ export class PosTransport {
    * Begin connecting the channels this register uses. Resolves once the
    * attempts are initiated. Bulloch is pole-only (no virtual journal), so the
    * VJ socket is never opened — avoids endless ECONNREFUSED retries against a
-   * port the Bulloch player doesn't listen on.
+   * port the Bulloch player doesn't listen on. Only Verifone Topaz has a
+   * separate barcode-scanner feed, so the scanner socket is opened for that
+   * type alone (and only when a scannerPort is configured).
    */
   async connect(): Promise<void> {
     this.closed = false;
     if (this.registerType !== 'bulloch') this.openChannel('vj');
     this.openChannel('pole');
+    if (this.registerType === 'verifone-topaz' && this.conns.scanner.port > 0) {
+      this.openChannel('scanner');
+    }
   }
 
   private openChannel(channel: Channel): void {
@@ -127,7 +133,7 @@ export class PosTransport {
   }
 
   status(): Status {
-    return { vj: this.conns.vj.state, pole: this.conns.pole.state };
+    return { vj: this.conns.vj.state, pole: this.conns.pole.state, scanner: this.conns.scanner.state };
   }
 
   onStatus(listener: (s: Status) => void): void {
@@ -149,7 +155,7 @@ export class PosTransport {
 
   close(): void {
     this.closed = true;
-    for (const channel of ['vj', 'pole'] as Channel[]) {
+    for (const channel of ['vj', 'pole', 'scanner'] as Channel[]) {
       const conn = this.conns[channel];
       if (conn.reconnectTimer) {
         clearTimeout(conn.reconnectTimer);

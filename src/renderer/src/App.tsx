@@ -313,12 +313,14 @@ const REGISTER_TAG: Record<RegisterType, string> = {
   'radiant6-canada': 'CA',
   'radiant6-us': 'US',
   bulloch: 'BUL',
+  'verifone-topaz': 'TPZ',
 };
 
 const REGISTER_TAG_TITLE: Record<RegisterType, string> = {
   'radiant6-canada': 'Radiant6 Canada',
   'radiant6-us': 'Radiant6 US',
   bulloch: 'Bulloch (Canada, pole-only)',
+  'verifone-topaz': 'Verifone Topaz (US, plaintext VJ + scanner)',
 };
 
 /** Compact per-step trail: `n/m kind glyph [detail]` — used live and for the last result. */
@@ -585,6 +587,11 @@ function App(): JSX.Element {
         <span className="conn">
           <Dot state={e.status.vj} /> VJ {e.config.host}:{e.config.vjPort}
           <Dot state={e.status.pole} /> Pole {e.config.host}:{e.config.polePort}
+          {e.config.scannerPort !== undefined && (
+            <>
+              <Dot state={e.status.scanner} /> Scanner {e.config.host}:{e.config.scannerPort}
+            </>
+          )}
         </span>
         <input
           className="host"
@@ -597,23 +604,27 @@ function App(): JSX.Element {
           title="Register type — sets the VJ/pole ports automatically"
           onChange={(ev) => {
             const registerType = ev.target.value as RegisterType;
-            e.setConfig({ ...e.config, registerType, ...portsForRegisterType(registerType) });
+            // scannerPort: undefined first so a stale Topaz port doesn't
+            // survive a switch to a scanner-less register type.
+            e.setConfig({ ...e.config, registerType, scannerPort: undefined, ...portsForRegisterType(registerType) });
           }}
         >
           {REGISTER_TYPES.map((r) => (
             <option key={r.value} value={r.value}>
-              {r.label} (VJ {r.vjPort} / Pole {r.polePort})
+              {r.label} (VJ {r.vjPort} / Pole {r.polePort}
+              {r.scannerPort !== undefined ? ` / Scanner ${r.scannerPort}` : ''})
             </option>
           ))}
         </select>
         <button onClick={() => void e.connect()}>Connect</button>
         <button onClick={() => void e.disconnect()}>Disconnect</button>
         <span className="spacer" />
-        {/* US lanes are en-US only — hide the toggle there. Switching to US
-            while fr is active is already coherent: the session rebuild carries
-            locale through RegisterSession.setLocale, which ignores 'fr' in US
-            mode, so the fresh snapshot reads 'en'. */}
-        {e.config.registerType !== 'radiant6-us' && (
+        {/* US lanes (Radiant6 US, Verifone Topaz) are en-US only — hide the
+            toggle there. Switching to US while fr is active is already
+            coherent: the session rebuild carries locale through
+            RegisterSession.setLocale, which ignores 'fr' in US mode, so the
+            fresh snapshot reads 'en'. */}
+        {e.config.registerType !== 'radiant6-us' && e.config.registerType !== 'verifone-topaz' && (
           <div className="locale">
             <button className={locale === 'en' ? 'on' : ''} onClick={() => e.setLocale('en')}>EN-CA</button>
             <button className={locale === 'fr' ? 'on' : ''} onClick={() => e.setLocale('fr')}>FR-CA</button>

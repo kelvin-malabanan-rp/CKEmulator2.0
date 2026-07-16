@@ -350,3 +350,126 @@ describe('RegisterSession — Bulloch (pole-only)', () => {
     expect(datas).toContain('[C200] Sale TRANS=000001 TOTAL=2.12 CHNG=0.90 TAX=0.10\n');
   });
 });
+
+describe('RegisterSession — Verifone Topaz (VJ + pole + scanner)', () => {
+  const topaz = (): RegisterSession => new RegisterSession({ registerType: 'verifone-topaz' });
+
+  const vjDatas = (messages: WireMessage[]): string[] =>
+    messages.filter((m) => m.channel === 'vj').map((m) => m.data);
+
+  it('speaks plaintext — never the EventId=key,value protocol', () => {
+    const s = topaz();
+    const msgs = [
+      ...s.addItem({ code: '049000000443', description: 'COKE 20OZ', priceCents: 219 }),
+      ...s.loyalty('8018000000000000000000'),
+      ...s.tender('cash-exact'),
+    ];
+    for (const m of msgs) expect(m.data).not.toContain('EventId=');
+  });
+
+  it('addItem emits scanner scan → VJ item line → pole mirror, in that order', () => {
+    const s = topaz();
+    s.open(); // consume the one-time CSH: lane-open line
+    const msgs = s.addItem({ code: '049000000443', description: 'COKE 20OZ', priceCents: 219 });
+    expect(msgs.map((m) => m.channel)).toEqual(['scanner', 'vj', 'pole']);
+    expect(msgs[0].data).toBe('049000000443\r\n');
+    expect(msgs[1].data).toContain('COKE 20OZ');
+    expect(s.snapshot().subtotalCents).toBe(219);
+  });
+
+  it('skips the scanner echo when the item has no barcode', () => {
+    const s = topaz();
+    const msgs = s.addItem({ code: '', description: 'MYSTERY', priceCents: 100 });
+    expect(msgs.some((m) => m.channel === 'scanner')).toBe(false);
+  });
+
+  it('voidLine emits a V-marked negative-price VJ line', () => {
+    const s = topaz();
+    s.addItem({ code: '1', description: 'COKE 20OZ', priceCents: 219 });
+    const datas = vjDatas(s.voidLine(1));
+    expect(datas).toHaveLength(1);
+    expect(datas[0]).toMatch(/ V .*COKE 20OZ.*-2\.19/);
+    expect(s.snapshot().subtotalCents).toBe(0);
+  });
+
+  it('setQuantity re-rings the line: void then re-add at the new quantity', () => {
+    const s = topaz();
+    s.addItem({ code: '1', description: 'COKE 20OZ', priceCents: 219 });
+    const datas = vjDatas(s.setQuantity(1, 3));
+    expect(datas).toHaveLength(2);
+    expect(datas[0]).toContain(' V ');
+    expect(datas[1]).toMatch(/COKE 20OZ\s+3\s+2\.19/);
+    expect(s.snapshot().subtotalCents).toBe(657);
+  });
+
+  it('setPrice re-rings the line: void then re-add at the new price', () => {
+    const s = topaz();
+    s.addItem({ code: '1', description: 'COKE 20OZ', priceCents: 219 });
+    const datas = vjDatas(s.setPrice(1, 199));
+    expect(datas).toHaveLength(2);
+    expect(datas[0]).toContain(' V ');
+    expect(datas[1]).toContain('1.99');
+    expect(s.snapshot().subtotalCents).toBe(199);
+  });
+
+  it('loyalty emits the plaintext LOYALTY line', () => {
+    const s = topaz();
+    const datas = vjDatas(s.loyalty('8018000000000000000000'));
+    expect(datas.some((d) => d.includes('LOYALTY 8018000000000000000000'))).toBe(true);
+  });
+
+  it('cash-exact tender is cents-exact: Sub Total, Tax, Total, CASH, TRAN# — no rounding', () => {
+    const s = topaz();
+    s.addItem({ code: '1', description: 'A ITEM', priceCents: 202 });
+    // 202¢ @ 5% → tax 10 → exact total 212; US Topaz never nickel-rounds.
+    const msgs = s.tender('cash-exact');
+    const vj = vjDatas(msgs).join('');
+    expect(vj).toContain('Sub Total      2.02');
+    expect(vj).toContain('Tax      0.10');
+    expect(vj).toContain('Total      2.12');
+    expect(vj).toContain('CASH      2.12');
+    expect(vj).toContain('TRAN# 1');
+    expect(vj).not.toContain('Arrondir');
+    const poles = msgs.filter((m) => m.channel === 'pole');
+    expect(poles.length).toBeGreaterThanOrEqual(3); // total, tender, change
+    expect(s.snapshot().tx).toBe(2);
+    expect(s.snapshot().lines).toHaveLength(0);
+  });
+
+  it('next-dollar change math uses the exact total', () => {
+    const s = topaz();
+    s.addItem({ code: '1', description: 'A ITEM', priceCents: 202 });
+    const msgs = s.tender('next-dollar');
+    // exact total 212 → next dollar 300 → change 0.88 (no nickel rounding)
+    const change = msgs.find((m) => m.channel === 'pole' && m.data.includes('CHANGE'));
+    expect(change).toBeDefined();
+    expect(change!.data).toContain('0.88');
+  });
+
+  it('voidTicket emits VOID TICKET and resets for the next sale', () => {
+    const s = topaz();
+    s.addItem({ code: '1', description: 'A ITEM', priceCents: 100 });
+    const datas = vjDatas(s.voidTicket());
+    expect(datas.some((d) => d.includes('VOID TICKET'))).toBe(true);
+    const snap = s.snapshot();
+    expect(snap.tx).toBe(2);
+    expect(snap.lines).toHaveLength(0);
+    expect(snap.started).toBe(false);
+  });
+
+  it('suspend emits TRANSACTION SUSPENDED; resume emits no VJ line', () => {
+    const s = topaz();
+    s.addItem({ code: '1', description: 'A ITEM', priceCents: 100 });
+    const suspendDatas = vjDatas(s.suspend());
+    expect(suspendDatas.some((d) => d.includes('TRANSACTION SUSPENDED'))).toBe(true);
+    const resume = s.resume();
+    expect(vjDatas(resume)).toEqual([]);
+    expect(s.snapshot().lines).toHaveLength(1);
+  });
+
+  it('ignores setLocale(fr) — Topaz lanes are en-US only', () => {
+    const s = topaz();
+    s.setLocale('fr');
+    expect(s.snapshot().locale).toBe('en');
+  });
+});

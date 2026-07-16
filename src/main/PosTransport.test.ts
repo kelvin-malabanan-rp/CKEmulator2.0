@@ -59,7 +59,7 @@ describe('PosTransport', () => {
     await transport.connect();
     await wait(50);
 
-    expect(transport.status()).toEqual({ vj: 'connected', pole: 'connected' });
+    expect(transport.status()).toEqual({ vj: 'connected', pole: 'connected', scanner: 'disconnected' });
   });
 
   it('sends VJ and pole bytes to the right server byte-for-byte', async () => {
@@ -115,10 +115,55 @@ describe('PosTransport', () => {
     await wait(50);
 
     // Pole is up; VJ is intentionally skipped even though a server is listening.
-    expect(transport.status()).toEqual({ vj: 'disconnected', pole: 'connected' });
+    expect(transport.status()).toEqual({ vj: 'disconnected', pole: 'connected', scanner: 'disconnected' });
     expect(transport.send('vj', 'EventId=1001\r\n')).toBe(false);
     await wait(20);
     expect(vj.received()).toBe('');
+  });
+
+  it('for the verifone-topaz register type connects VJ, pole AND scanner', async () => {
+    const vj = await listen();
+    const pole = await listen();
+    const scanner = await listen();
+    servers.push(vj.server, pole.server, scanner.server);
+
+    transport = new PosTransport({
+      host: '127.0.0.1',
+      vjPort: vj.port,
+      polePort: pole.port,
+      scannerPort: scanner.port,
+      registerType: 'verifone-topaz',
+    });
+    await transport.connect();
+    await wait(50);
+
+    expect(transport.status()).toEqual({ vj: 'connected', pole: 'connected', scanner: 'connected' });
+
+    transport.send('scanner', '049000000443\r\n');
+    await wait(50);
+    expect(scanner.received()).toBe('049000000443\r\n');
+  });
+
+  it('skips the scanner channel for non-topaz types even when a scannerPort is given', async () => {
+    const vj = await listen();
+    const pole = await listen();
+    const scanner = await listen();
+    servers.push(vj.server, pole.server, scanner.server);
+
+    transport = new PosTransport({
+      host: '127.0.0.1',
+      vjPort: vj.port,
+      polePort: pole.port,
+      scannerPort: scanner.port,
+      registerType: 'radiant6-canada',
+    });
+    await transport.connect();
+    await wait(50);
+
+    expect(transport.status().scanner).toBe('disconnected');
+    expect(transport.send('scanner', '049000000443\r\n')).toBe(false);
+    await wait(20);
+    expect(scanner.received()).toBe('');
   });
 
   it('auto-reconnects after the server drops and comes back', async () => {

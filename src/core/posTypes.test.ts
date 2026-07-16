@@ -47,9 +47,37 @@ describe('register types & ports', () => {
     expect(portsForRegisterType('bulloch')).toEqual({ vjPort: 5438, polePort: 5440 });
   });
 
-  it('lists exactly the three register types with labels', () => {
-    expect(REGISTER_TYPES.map((r) => r.value)).toEqual(['radiant6-canada', 'radiant6-us', 'bulloch']);
+  it('lists exactly the four register types with labels', () => {
+    expect(REGISTER_TYPES.map((r) => r.value)).toEqual([
+      'radiant6-canada',
+      'radiant6-us',
+      'bulloch',
+      'verifone-topaz',
+    ]);
     expect(REGISTER_TYPES.find((r) => r.value === 'bulloch')?.label).toBe('Bulloch');
+  });
+
+  it('maps Verifone Topaz to VJ 5441 / pole 5442 / scanner 5443 (emulator TCP convention)', () => {
+    expect(portsForRegisterType('verifone-topaz')).toEqual({
+      vjPort: 5441,
+      polePort: 5442,
+      scannerPort: 5443,
+    });
+  });
+
+  it('registers Verifone Topaz with its label and ports', () => {
+    expect(REGISTER_TYPES.find((r) => r.value === 'verifone-topaz')).toEqual({
+      value: 'verifone-topaz',
+      label: 'Verifone Topaz',
+      vjPort: 5441,
+      polePort: 5442,
+      scannerPort: 5443,
+    });
+  });
+
+  it('omits scannerPort for register types without a scanner feed', () => {
+    expect(portsForRegisterType('radiant6-canada')).not.toHaveProperty('scannerPort');
+    expect(portsForRegisterType('bulloch')).not.toHaveProperty('scannerPort');
   });
 
   it('maps Radiant6 US to VJ 5438 / pole 5439 (shared Radiant6 ports)', () => {

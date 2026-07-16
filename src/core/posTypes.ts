@@ -5,37 +5,54 @@ import type { QuickKeyLoadResult } from './quickkeys';
 import type { AdsManifestResult, AdDetailResult } from './adTriggers';
 import type { InjectCommand } from './injectProtocol';
 
-export type Channel = 'vj' | 'pole';
+export type Channel = 'vj' | 'pole' | 'scanner';
 export type ConnState = 'connected' | 'connecting' | 'disconnected';
 export type Status = Record<Channel, ConnState>;
 
 /**
  * POS register types — each listens on its own VJ/pole ports; radiant6-us
  * shares the Radiant6 ports but flips VJ-totals/rounding behavior
- * (see RegisterSession).
+ * (see RegisterSession). verifone-topaz adds a third feed (scanner) —
+ * in prod all three are serial COM ports, so the emulator uses its own
+ * TCP port convention (see below).
  */
-export type RegisterType = 'radiant6-canada' | 'radiant6-us' | 'bulloch';
+export type RegisterType = 'radiant6-canada' | 'radiant6-us' | 'bulloch' | 'verifone-topaz';
 
 /**
  * Per-register-type defaults (the ports the player listens on). Radiant6
  * Canada and US use VJ 5438 / pole 5439; Bulloch is pole-primary on 5440
  * (legacy `debug1.properties`: "Bulloch typically listens on TCP 5440").
+ *
+ * Verifone Topaz has NO prod TCP ports — the player binds serial COM ports
+ * (scanner COM1, pole COM2, VJ COM3 per LIFT-2669). For emulation the
+ * player's ioParams are overridden to TCP, so 5441-5443 are a NET-NEW
+ * emulator convention (next free after Bulloch's 5440), mirrored in the
+ * player's dev settings: `virtualjournal.ioParams=TCP:5441`,
+ * `poledisplay.ioParams=TCP:5442`, `scanner.ioParams=TCP:5443`.
  */
 export const REGISTER_TYPES: ReadonlyArray<{
   value: RegisterType;
   label: string;
   vjPort: number;
   polePort: number;
+  scannerPort?: number;
 }> = [
   { value: 'radiant6-canada', label: 'Radiant6 Canada', vjPort: 5438, polePort: 5439 },
   { value: 'radiant6-us', label: 'Radiant6 US', vjPort: 5438, polePort: 5439 },
   { value: 'bulloch', label: 'Bulloch', vjPort: 5438, polePort: 5440 },
+  { value: 'verifone-topaz', label: 'Verifone Topaz', vjPort: 5441, polePort: 5442, scannerPort: 5443 },
 ];
 
-/** Look up the VJ/pole ports for a register type. */
-export function portsForRegisterType(type: RegisterType): { vjPort: number; polePort: number } {
+/** Look up the VJ/pole (and, for Topaz, scanner) ports for a register type. */
+export function portsForRegisterType(
+  type: RegisterType,
+): { vjPort: number; polePort: number; scannerPort?: number } {
   const entry = REGISTER_TYPES.find((r) => r.value === type) ?? REGISTER_TYPES[0];
-  return { vjPort: entry.vjPort, polePort: entry.polePort };
+  return {
+    vjPort: entry.vjPort,
+    polePort: entry.polePort,
+    ...(entry.scannerPort !== undefined ? { scannerPort: entry.scannerPort } : {}),
+  };
 }
 
 /** Connection target for the CK Player 2.0 CA adapters. */
@@ -43,6 +60,8 @@ export interface PosConfig {
   host: string;
   vjPort: number;
   polePort: number;
+  /** Barcode-scanner feed port — only used by verifone-topaz. */
+  scannerPort?: number;
   registerType: RegisterType;
 }
 
