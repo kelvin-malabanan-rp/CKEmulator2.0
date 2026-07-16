@@ -442,6 +442,12 @@ function Scenarios({
         <div className="hint">Coupon UPC must be exactly 12 digits — anything else is treated by the player as a loyalty sign-in, not a coupon.</div>
       )}
       <div className="sclist">
+        {list.length === 0 && !strayRunning && strayResult === null && (
+          <div className="hint">
+            No scenarios support the {REGISTER_TAG_TITLE[registerType]} lane yet — switch the register type to see its
+            scenarios.
+          </div>
+        )}
         {list.map((s) => {
           const active = r.running === s.id;
           const finished = r.running === null && r.lastResult !== null && r.lastResult.id === s.id;
