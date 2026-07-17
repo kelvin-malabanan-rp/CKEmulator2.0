@@ -367,6 +367,17 @@ describe('RegisterSession — Verifone Topaz (VJ + pole + scanner)', () => {
     for (const m of msgs) expect(m.data).not.toContain('EventId=');
   });
 
+  it('a prepay-fuel item (# in the description) emits the fuel VJ line with no scanner echo', () => {
+    const s = topaz();
+    s.open(); // consume the one-time CSH: lane-open line
+    const msgs = s.addItem({ code: '', description: 'PREPAY CA #05', priceCents: 3000 });
+    expect(msgs.map((m) => m.channel)).toEqual(['vj', 'pole']);
+    expect(msgs[0].data).toContain('# 05');
+    expect(msgs[0].data).toContain('30.00');
+    expect(s.snapshot().subtotalCents).toBe(3000);
+    expect(s.snapshot().lines[0].description).toBe('PREPAY CA #05');
+  });
+
   it('addItem emits scanner scan → VJ item line → pole mirror, in that order', () => {
     const s = topaz();
     s.open(); // consume the one-time CSH: lane-open line

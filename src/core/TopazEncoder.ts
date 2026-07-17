@@ -112,6 +112,26 @@ export class TopazEncoder {
     return this.vjLine(`${dept} ${desc}  ${qty}  ${money(args.priceCents).padStart(7)}`);
   }
 
+  /**
+   * `<label> # <pump>   1  <amount>` → ITEM_ADD via the parser's fuel branch
+   * (cascade step 11, checked BEFORE the generic item add — the `#` is what
+   * routes it there). A prepay is a normal ITEM whose description carries the
+   * pump number (`PREPAY CA #05`); the player ignores the label text and
+   * quantity, stamps its configured prepayFuelDescription, and takes only the
+   * amount from the line.
+   */
+  fuelPrepay(args: { description: string; priceCents: number }): string {
+    const hashIdx = args.description.indexOf('#');
+    const pump = /#\s*(\d+)/.exec(args.description)?.[1] ?? '0';
+    const label = (hashIdx >= 0 ? args.description.slice(0, hashIdx) : args.description)
+      .replace(/[^\x20-\x7E]/g, '')
+      .trim()
+      .padEnd(3)
+      .slice(0, 18)
+      .trimEnd();
+    return this.vjLine(`${label} # ${pump}   1  ${money(args.priceCents).padStart(7)}`);
+  }
+
   /** ` V <desc(20)> <qty>  -<price>` → ITEM_VOID (voided, negative price). */
   itemVoid(args: TopazItemArgs): string {
     const desc = sanitizeDescription(args.description).padEnd(20);

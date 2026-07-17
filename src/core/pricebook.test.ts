@@ -5,6 +5,7 @@ import {
   loadPricebookIndex,
   resolvePricebookFilename,
   resolvePricebookDir,
+  resolveScan,
   pickQuickKeys,
 } from './pricebook';
 
@@ -103,6 +104,40 @@ describe('resolvePricebookDir', () => {
 
   it('trims a requested dir', () => {
     expect(resolvePricebookDir('  /my/dir  ', fallback)).toBe('/my/dir');
+  });
+});
+
+describe('resolveScan', () => {
+  const hit = { description: 'Coke 20oz', priceCents: 229 };
+
+  it('explicit description and price win over the pricebook hit', () => {
+    expect(resolveScan(hit, '105', 'PREPAY CA #02', 100)).toEqual({
+      code: '105',
+      description: 'PREPAY CA #02',
+      priceCents: 100,
+    });
+  });
+
+  it('the pricebook hit fills in whatever the caller left out', () => {
+    expect(resolveScan(hit, '049000000443')).toEqual({
+      code: '049000000443',
+      description: 'Coke 20oz',
+      priceCents: 229,
+    });
+    expect(resolveScan(hit, '049000000443', undefined, 150)).toEqual({
+      code: '049000000443',
+      description: 'Coke 20oz',
+      priceCents: 150,
+    });
+  });
+
+  it('blank explicit description falls through to the hit, then to UPC <code>', () => {
+    expect(resolveScan(hit, '1', '  ').description).toBe('Coke 20oz');
+    expect(resolveScan(undefined, '42', '  ')).toEqual({ code: '42', description: 'UPC 42', priceCents: 100 });
+  });
+
+  it('unknown item with no explicit values defaults to UPC <code> at $1.00', () => {
+    expect(resolveScan(undefined, '999')).toEqual({ code: '999', description: 'UPC 999', priceCents: 100 });
   });
 });
 

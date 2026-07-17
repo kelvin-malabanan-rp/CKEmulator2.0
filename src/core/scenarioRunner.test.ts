@@ -50,6 +50,17 @@ describe('ScenarioRunner', () => {
     expect(result.steps.map((s) => s.status)).toEqual(['ok', 'ok']);
   });
 
+  it('passes a scan step price through to the scan action (uncoded prepay items)', async () => {
+    const calls: Array<[string, string | undefined, number | undefined]> = [];
+    const actions = { ...fakeActions(), scan: (c: string, d?: string, p?: number) => calls.push([c, d, p]) };
+    const r = new ScenarioRunner(actions);
+    const result = await r.run(
+      scenario([{ kind: 'scan', code: '', description: 'PREPAY CA #05', priceCents: 3000 }]),
+    );
+    expect(calls).toEqual([['', 'PREPAY CA #05', 3000]]);
+    expect(result.verdict).toBe('pass');
+  });
+
   it('waitForInject resolves when a matching inject arrives', async () => {
     const actions = fakeActions();
     const r = new ScenarioRunner(actions);

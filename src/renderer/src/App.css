@@ -177,8 +177,10 @@ h3 { margin: 9px 0 5px; font-size: 13px; text-transform: uppercase; letter-spaci
 .basket { width: 100%; border-collapse: collapse; font-size: 14px; }
 .basket th, .basket td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #2a2e37; }
 .basket th { color: #8b93a3; font-weight: 600; font-size: 12px; }
+.basket .col-item { width: 50%; }
+.basket .col-qty { width: 25%; }
+.basket .col-price { width: 25%; }
 .basket .empty { color: #6b7280; text-align: center; padding: 24px; }
-.basket tr.voided td { color: #6b7280; text-decoration: line-through; }
 .lineactions { display: flex; gap: 4px; }
 .lineactions button { padding: 3px 7px; font-size: 12px; background: #3a3f4a; }
 .lineactions button:last-child { background: #8a3b32; }

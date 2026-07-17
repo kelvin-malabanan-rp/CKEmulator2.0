@@ -166,6 +166,152 @@ describe('PosTransport', () => {
     expect(scanner.received()).toBe('');
   });
 
+  it('queues sends while the player is down and flushes them in order on reconnect', async () => {
+    const vj = await listen();
+    const pole = await listen();
+    servers.push(pole.server);
+
+    transport = new PosTransport({
+      host: '127.0.0.1',
+      vjPort: vj.port,
+      polePort: pole.port,
+      reconnectDelayMs: 30,
+    });
+    await transport.connect();
+    await wait(50);
+    expect(transport.status().vj).toBe('connected');
+
+    // Player goes away mid-transaction; sends during the outage must not be lost.
+    await vj.drop();
+    await wait(60);
+    expect(transport.send('vj', 'EventId=1011,Barcode=041594899038\r\n')).toBe(false);
+    expect(transport.send('vj', 'EventId=1020,Tax=0.05\r\n')).toBe(false);
+
+    const vj2 = await listen(vj.port);
+    servers.push(vj2.server);
+    await wait(150);
+    expect(transport.status().vj).toBe('connected');
+    expect(vj2.received()).toBe('EventId=1011,Barcode=041594899038\r\nEventId=1020,Tax=0.05\r\n');
+  });
+
+  it('flushes sends queued before the very first connect (player not up yet)', async () => {
+    const scanner = await listen();
+    const vj = await listen();
+    const pole = await listen();
+    servers.push(scanner.server, vj.server, pole.server);
+
+    // Stop the scanner server first so the initial connect attempt fails.
+    const scannerPort = scanner.port;
+    await scanner.drop();
+
+    transport = new PosTransport({
+      host: '127.0.0.1',
+      vjPort: vj.port,
+      polePort: pole.port,
+      scannerPort,
+      registerType: 'verifone-topaz',
+      reconnectDelayMs: 30,
+    });
+    await transport.connect();
+    await wait(50);
+    expect(transport.status().scanner).not.toBe('connected');
+
+    // The scanner echo fired while the scanner socket was still down.
+    expect(transport.send('scanner', '041594899038\r\n')).toBe(false);
+
+    const scanner2 = await listen(scannerPort);
+    servers.push(scanner2.server);
+    await wait(150);
+    expect(transport.status().scanner).toBe('connected');
+    expect(scanner2.received()).toBe('041594899038\r\n');
+  });
+
+  it('caps the pending queue at 100, dropping the oldest messages first', async () => {
+    const vj = await listen();
+    const pole = await listen();
+    servers.push(pole.server);
+
+    transport = new PosTransport({
+      host: '127.0.0.1',
+      vjPort: vj.port,
+      polePort: pole.port,
+      reconnectDelayMs: 30,
+    });
+    await transport.connect();
+    await wait(50);
+    await vj.drop();
+    await wait(60);
+
+    for (let i = 0; i < 105; i++) {
+      transport.send('vj', `msg${i}\r\n`);
+    }
+
+    const vj2 = await listen(vj.port);
+    servers.push(vj2.server);
+    await wait(150);
+    const lines = vj2.received().split('\r\n').filter(Boolean);
+    expect(lines).toHaveLength(100);
+    expect(lines[0]).toBe('msg5');
+    expect(lines[99]).toBe('msg104');
+  });
+
+  it('close() discards the pending queue instead of flushing it later', async () => {
+    const vj = await listen();
+    const pole = await listen();
+    servers.push(pole.server);
+
+    transport = new PosTransport({
+      host: '127.0.0.1',
+      vjPort: vj.port,
+      polePort: pole.port,
+      reconnectDelayMs: 30,
+    });
+    await transport.connect();
+    await wait(50);
+    await vj.drop();
+    await wait(60);
+    transport.send('vj', 'EventId=1011\r\n');
+    transport.close();
+
+    const vj2 = await listen(vj.port);
+    servers.push(vj2.server);
+    await wait(100);
+    expect(vj2.received()).toBe('');
+    // Sends after close() drop rather than queue.
+    expect(transport.send('vj', 'EventId=1011\r\n')).toBe(false);
+  });
+
+  it('parses an inbound scanner write as a completer inject (US Topaz path)', async () => {
+    const vj = await listen();
+    const pole = await listen();
+    const scanner = await listen();
+    servers.push(vj.server, pole.server, scanner.server);
+
+    transport = new PosTransport({
+      host: '127.0.0.1',
+      vjPort: vj.port,
+      polePort: pole.port,
+      scannerPort: scanner.port,
+      registerType: 'verifone-topaz',
+    });
+    const injects: Array<{ barcode: string; quantity: number }> = [];
+    transport.onInject((cmd) => injects.push(cmd));
+    await transport.connect();
+    await wait(50);
+
+    // Player writes the completer item code down the scanner socket, one write
+    // per unit, POS-formatted (possible prefix/suffix) + line separator.
+    scanner.push('041594899038\r\n');
+    scanner.push('S041594899038X\r049000000443\n');
+    await wait(50);
+
+    expect(injects).toEqual([
+      { barcode: '041594899038', quantity: 1 },
+      { barcode: '041594899038', quantity: 1 },
+      { barcode: '049000000443', quantity: 1 },
+    ]);
+  });
+
   it('auto-reconnects after the server drops and comes back', async () => {
     const vj = await listen();
     const pole = await listen();

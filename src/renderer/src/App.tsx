@@ -3,7 +3,7 @@ import { PRICEBOOK, useEmulator } from './useEmulator';
 import { useScenarioRunner } from './useScenarioRunner';
 import { formatCurrency, type PosLocale } from '../../core/currency';
 import { paginate } from '../../core/quickkeys';
-import { isInteractiveTemplate, type AdItem } from '../../core/adTriggers';
+import { findAnyCompleter, findPrepayItem, isInteractiveTemplate, type AdItem } from '../../core/adTriggers';
 import { builtinScenarios, describeStep, scenarioForAd, type ScenarioParams } from '../../core/scenarios';
 import type { RunResult, StepResult, StepStatus } from '../../core/scenarioRunner';
 import { REGISTER_TYPES, portsForRegisterType, type ConnState, type RegisterType } from '../../core/posTypes';
@@ -18,6 +18,10 @@ const SCENARIO_COUPON_KEY = 'r6ca.scenario.upcCoupon12';
 const DEFAULT_SCENARIO_CARD = '8018782603900930000100';
 const DEFAULT_UPC_COUPON = '012345678905';
 const DEFAULT_STEP_GAP_MS = 750;
+const SCENARIO_PREPAY_KEY = 'r6ca.scenario.prepayAmountCents';
+const SCENARIO_PUMP_KEY = 'r6ca.scenario.prepayPumpNumber';
+const DEFAULT_PREPAY_CENTS = 3000;
+const DEFAULT_PREPAY_PUMP = 5;
 
 function Dot({ state }: { state: ConnState }): JSX.Element {
   const color = state === 'connected' ? '#3ec46d' : state === 'connecting' ? '#e6b450' : '#d9534f';
@@ -377,6 +381,10 @@ function Scenarios({
   setStepGapMs,
   upcCoupon12,
   setUpcCoupon12,
+  prepayAmountCents,
+  setPrepayAmountCents,
+  prepayPumpNumber,
+  setPrepayPumpNumber,
 }: {
   e: ReturnType<typeof useEmulator>;
   r: ReturnType<typeof useScenarioRunner>;
@@ -387,6 +395,10 @@ function Scenarios({
   setStepGapMs: (ms: number) => void;
   upcCoupon12: string;
   setUpcCoupon12: (upc: string) => void;
+  prepayAmountCents: number;
+  setPrepayAmountCents: (cents: number) => void;
+  prepayPumpNumber: number;
+  setPrepayPumpNumber: (pump: number) => void;
 }): JSX.Element {
   const registerType = e.config.registerType;
   const list = useMemo(
@@ -435,6 +447,35 @@ function Scenarios({
             className="sccoupon"
             value={upcCoupon12}
             onChange={(ev) => setUpcCoupon12(ev.target.value.trim())}
+          />
+        </label>
+        <label title="Fuel prepay amount for the demo script's Scene 2, in dollars">
+          Prepay $
+          <input
+            type="number"
+            className="scgap"
+            min={1}
+            step={5}
+            value={prepayAmountCents / 100}
+            onChange={(ev) => {
+              const v = Number(ev.target.value);
+              setPrepayAmountCents(Number.isFinite(v) && v > 0 ? Math.round(v * 100) : DEFAULT_PREPAY_CENTS);
+            }}
+          />
+        </label>
+        <label title="Pump number for the demo's synthetic prepay line — only used when no real prepay item is found in the loaded ads">
+          Pump
+          <input
+            type="number"
+            className="scgap"
+            min={1}
+            max={99}
+            step={1}
+            value={prepayPumpNumber}
+            onChange={(ev) => {
+              const v = Number(ev.target.value);
+              setPrepayPumpNumber(Number.isFinite(v) && v >= 1 ? Math.trunc(v) : DEFAULT_PREPAY_PUMP);
+            }}
           />
         </label>
       </div>
@@ -572,19 +613,62 @@ function App(): JSX.Element {
       // ignore storage failures (private mode etc.)
     }
   }, []);
+  const [prepayAmountCents, setPrepayAmountCentsState] = useState<number>(() => {
+    try {
+      const n = Number(localStorage.getItem(SCENARIO_PREPAY_KEY));
+      return Number.isFinite(n) && n > 0 ? n : DEFAULT_PREPAY_CENTS;
+    } catch {
+      return DEFAULT_PREPAY_CENTS;
+    }
+  });
+  const setPrepayAmountCents = useCallback((cents: number) => {
+    setPrepayAmountCentsState(cents);
+    try {
+      localStorage.setItem(SCENARIO_PREPAY_KEY, String(cents));
+    } catch {
+      // ignore storage failures (private mode etc.)
+    }
+  }, []);
+  const [prepayPumpNumber, setPrepayPumpNumberState] = useState<number>(() => {
+    try {
+      const n = Number(localStorage.getItem(SCENARIO_PUMP_KEY));
+      return Number.isFinite(n) && n >= 1 ? Math.trunc(n) : DEFAULT_PREPAY_PUMP;
+    } catch {
+      return DEFAULT_PREPAY_PUMP;
+    }
+  });
+  const setPrepayPumpNumber = useCallback((pump: number) => {
+    setPrepayPumpNumberState(pump);
+    try {
+      localStorage.setItem(SCENARIO_PUMP_KEY, String(pump));
+    } catch {
+      // ignore storage failures (private mode etc.)
+    }
+  }, []);
 
   // Item codes for the canned scenarios: first two quick keys, falling back to
   // the derived quick-key picks, then the bundled PRICEBOOK constants.
   const params = useMemo<ScenarioParams>(() => {
     const qkEntries = e.quickKeyFiles[0]?.entries ?? [];
+    // The demo's fuel scene rings the real prepay item from the loaded ads
+    // (the pump param only shapes the synthetic fallback line), and Scene 3
+    // auto-injects a completer — the prepay ad's when it has one, else any
+    // loaded ad's — because the ads don't render on the shopper screen.
+    const ads = Object.values(e.adDetails);
+    const prepay = findPrepayItem(ads);
+    const completer = prepay?.completer ?? findAnyCompleter(ads, prepay?.code);
     return {
       itemCode: qkEntries[0]?.upc ?? e.quickKeys[0]?.code ?? PRICEBOOK[0].code,
       itemCode2: qkEntries[1]?.upc ?? e.quickKeys[1]?.code ?? PRICEBOOK[1].code,
       loyaltyCard,
       upcCoupon12,
       stepGapMs,
+      prepayPumpNumber,
+      prepayAmountCents,
+      ...(prepay ? { prepayItem: { code: prepay.code, description: prepay.description } } : {}),
+      ...(completer ? { demoCompleter: completer } : {}),
     };
-  }, [e.quickKeyFiles, e.quickKeys, loyaltyCard, upcCoupon12, stepGapMs]);
+  }, [e.quickKeyFiles, e.quickKeys, e.adDetails, loyaltyCard, upcCoupon12, stepGapMs, prepayPumpNumber, prepayAmountCents]);
 
   return (
     <div className="app">
@@ -691,35 +775,26 @@ function App(): JSX.Element {
           <table className="basket">
             <thead>
               <tr>
-                <th>#</th>
-                <th>Item</th>
-                <th>Qty</th>
-                <th>Price</th>
-                <th>Ext</th>
-                <th />
+                <th className="col-item">Item</th>
+                <th className="col-qty">Qty</th>
+                <th className="col-price">Price</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {snapshot.lines.length === 0 && (
+              {snapshot.lines.filter((li) => !li.voided).length === 0 && (
                 <tr>
-                  <td colSpan={6} className="empty">No items — tap a quick key</td>
+                  <td colSpan={4} className="empty">No items — tap a quick key</td>
                 </tr>
               )}
-              {snapshot.lines.map((li) => (
-                <tr key={li.lineNumber} className={li.voided ? 'voided' : ''}>
-                  <td>{li.lineNumber}</td>
+              {snapshot.lines.filter((li) => !li.voided).map((li) => (
+                <tr key={li.lineNumber}>
                   <td>{li.description}</td>
                   <td>{li.quantity}</td>
-                  <td>{formatCurrency(li.unitPriceCents, locale)}</td>
                   <td>{formatCurrency(li.extendedCents, locale)}</td>
                   <td className="lineactions">
-                    {!li.voided && (
-                      <>
-                        <button onClick={() => e.setQuantity(li.lineNumber, li.quantity + 1)}>+1</button>
-                        <button onClick={() => e.setPrice(li.lineNumber, Math.max(0, li.unitPriceCents - 10))}>-10¢</button>
-                        <button onClick={() => e.voidLine(li.lineNumber)}>void</button>
-                      </>
-                    )}
+                    <button title="Add another of this item (new line)" onClick={() => e.addCustom({ code: li.code, description: li.description, priceCents: li.unitPriceCents, quantity: 1 })}>+1</button>
+                    <button title="Void this line" onClick={() => e.voidLine(li.lineNumber)}>void</button>
                   </td>
                 </tr>
               ))}
@@ -763,6 +838,10 @@ function App(): JSX.Element {
               setStepGapMs={setStepGapMs}
               upcCoupon12={upcCoupon12}
               setUpcCoupon12={setUpcCoupon12}
+              prepayAmountCents={prepayAmountCents}
+              setPrepayAmountCents={setPrepayAmountCents}
+              prepayPumpNumber={prepayPumpNumber}
+              setPrepayPumpNumber={setPrepayPumpNumber}
             />
           ) : (
             <div className="log">
