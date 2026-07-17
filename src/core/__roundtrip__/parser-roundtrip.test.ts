@@ -172,3 +172,25 @@ describe('round-trip: pole encoder → CKPlayer2.0 Radiant6CanadaPoleDisplayPars
     expect(e.data.poleDisplay).toMatchObject({ kind: 'item', qty: 1, description: 'Coke', priceCents: 194 });
   });
 });
+
+describe('round-trip: Topaz fuel prepay → CKPlayer2.0 TopazMessageParser', () => {
+  it('a # prepay item line decodes via the fuel branch: ITEM_ADDED with the player prepay description', async () => {
+    const { TopazMessageParser } = await import(
+      '../../../../CKPlayer2.0/electron/plugins/verifone/TopazMessageParser'
+    );
+    const { TopazEncoder } = await import('../TopazEncoder');
+
+    const topaz = new TopazEncoder({ registerId: 1 });
+    const parser = new TopazMessageParser({
+      enableReverseIsVoid: false,
+      prepayFuelDescription: 'Prepay Fuel',
+      descriptionTruncateLimit: 20,
+    });
+
+    const events = parser.append(topaz.fuelPrepay({ description: 'PREPAY CA #05', priceCents: 3000 }));
+    expect(events).toHaveLength(1);
+    expect(events[0].action).toBe('ITEM_ADDED');
+    expect(events[0].data.description).toBe('Prepay Fuel');
+    expect(events[0].data.price).toBeCloseTo(30.0, 5);
+  });
+});

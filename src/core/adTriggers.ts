@@ -170,6 +170,54 @@ export function isInteractiveTemplate(template: string | undefined): boolean {
   return t !== '' && t !== 'static image or video';
 }
 
+/** The real prepay item pulled from the loaded ads, plus how to complete its ad. */
+export interface PrepayAdPick {
+  /** UPC and description of the prepay item itself. */
+  code: string;
+  description: string;
+  /**
+   * First completer of the ad carrying the prepay item (excluding the prepay
+   * item itself) — scenarios ring it directly to complete the offer when the
+   * ad can't be tapped on the shopper screen.
+   */
+  completer?: AdItem;
+}
+
+/**
+ * Find the real fuel prepay item across the loaded ads' triggers/completers —
+ * the first item whose description mentions "prepay" (case-insensitive).
+ * Scenarios ring this real item instead of a hardcoded synthetic prepay line.
+ * Returns null when no ad carries one (e.g. ads not loaded yet).
+ */
+export function findPrepayItem(ads: AdTriggersCompleters[]): PrepayAdPick | null {
+  for (const ad of ads) {
+    for (const item of [...ad.triggers, ...ad.completers]) {
+      if (item.description && /prepay/i.test(item.description)) {
+        const completer = ad.completers.find((c) => c.code !== item.code);
+        return {
+          code: item.code,
+          description: item.description,
+          ...(completer ? { completer } : {}),
+        };
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * First completer across the loaded ads, skipping `excludeCode` (e.g. the
+ * prepay item itself). The demo scans it directly to play the offer-completes
+ * beat when the player can't render the ad for a manual shopper-screen tap.
+ */
+export function findAnyCompleter(ads: AdTriggersCompleters[], excludeCode?: string): AdItem | null {
+  for (const ad of ads) {
+    const completer = ad.completers.find((c) => c.code !== excludeCode);
+    if (completer) return completer;
+  }
+  return null;
+}
+
 /** Order ads by name (case-insensitive), matching the legacy emulator list. */
 export function orderAds(ads: AdTriggersCompleters[]): AdTriggersCompleters[] {
   return [...ads].sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));

@@ -138,6 +138,26 @@ export function resolvePricebookFilename(
   return null;
 }
 
+/**
+ * Resolve a scan into a basket item. Explicit description/price from the
+ * caller (a scenario step, an ad item — e.g. the demo's fuel prepay whose
+ * amount is a scenario param, not a pricebook price) win over the local
+ * pricebook entry; the pricebook fills in whatever the caller left out, with
+ * `UPC <code>` / $1.00 as the last-resort defaults for unknown items.
+ */
+export function resolveScan(
+  hit: { description: string; priceCents: number } | undefined,
+  code: string,
+  description?: string,
+  priceCents?: number,
+): { code: string; description: string; priceCents: number } {
+  return {
+    code,
+    description: description?.trim() || hit?.description || `UPC ${code}`,
+    priceCents: priceCents ?? hit?.priceCents ?? 100,
+  };
+}
+
 /** Select sellable items (barcode + description + price) to surface as quick keys. */
 export function pickQuickKeys(entries: PricebookEntry[], limit = 24): QuickKeyItem[] {
   const keys: QuickKeyItem[] = [];

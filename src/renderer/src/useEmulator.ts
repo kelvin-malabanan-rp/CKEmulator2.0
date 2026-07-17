@@ -13,6 +13,7 @@ import type { PosLocale } from '../../core/currency';
 import {
   buildPricebookIndex,
   pickQuickKeys,
+  resolveScan,
   type PricebookEntry,
   type QuickKeyItem,
   type PricebookLoadResult,
@@ -86,7 +87,7 @@ export function useEmulator(): {
   loadPricebook: () => Promise<void>;
   addItem: (item: PricebookItem) => void;
   addCustom: (input: { code: string; description: string; priceCents: number; quantity: number }) => void;
-  scan: (code: string, description?: string) => void;
+  scan: (code: string, description?: string, priceCents?: number) => void;
   voidLine: (lineNumber: number) => void;
   setQuantity: (lineNumber: number, qty: number) => void;
   setPrice: (lineNumber: number, priceCents: number) => void;
@@ -490,15 +491,9 @@ export function useEmulator(): {
       addItem: (item: PricebookItem) => dispatch(session.addItem(item)),
       addCustom: (input: { code: string; description: string; priceCents: number; quantity: number }) =>
         dispatch(session.addItem(input)),
-      scan: (code: string, description?: string) => {
+      scan: (code: string, description?: string, priceCents?: number) => {
         const hit = pricebookIndex.get(code) ?? quickKeys.find((p) => p.code === code);
-        dispatch(
-          session.addItem(
-            hit
-              ? { code: hit.code, description: hit.description, priceCents: hit.priceCents }
-              : { code, description: description?.trim() || `UPC ${code}`, priceCents: 100 },
-          ),
-        );
+        dispatch(session.addItem(resolveScan(hit, code, description, priceCents)));
       },
       voidLine: (lineNumber: number) => dispatch(session.voidLine(lineNumber)),
       setQuantity: (lineNumber: number, qty: number) => dispatch(session.setQuantity(lineNumber, qty)),

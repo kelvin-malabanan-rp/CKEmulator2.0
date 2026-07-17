@@ -22,7 +22,14 @@ interface Connection {
   state: ConnState;
   port: number;
   reconnectTimer: ReturnType<typeof setTimeout> | null;
+  /** Channel was opened by connect() — sends may queue while it is down. */
+  enabled: boolean;
+  /** Outbound messages held while the channel is down, flushed FIFO on connect. */
+  pending: string[];
 }
+
+/** Max messages held per channel while disconnected; beyond this the oldest is dropped. */
+const MAX_PENDING = 100;
 
 export class PosTransport {
   private readonly host: string;
@@ -34,15 +41,17 @@ export class PosTransport {
   private injectListeners: Array<(cmd: InjectCommand) => void> = [];
   /** Line buffer for inbound VJ bytes (player→register completer injects). */
   private vjBuffer = '';
+  /** Line buffer for inbound scanner bytes (US Topaz completer injects). */
+  private scannerBuffer = '';
 
   constructor(config: PosTransportConfig) {
     this.host = config.host;
     this.reconnectDelayMs = config.reconnectDelayMs ?? 2000;
     this.registerType = config.registerType;
     this.conns = {
-      vj: { socket: null, state: 'disconnected', port: config.vjPort, reconnectTimer: null },
-      pole: { socket: null, state: 'disconnected', port: config.polePort, reconnectTimer: null },
-      scanner: { socket: null, state: 'disconnected', port: config.scannerPort ?? 0, reconnectTimer: null },
+      vj: { socket: null, state: 'disconnected', port: config.vjPort, reconnectTimer: null, enabled: false, pending: [] },
+      pole: { socket: null, state: 'disconnected', port: config.polePort, reconnectTimer: null, enabled: false, pending: [] },
+      scanner: { socket: null, state: 'disconnected', port: config.scannerPort ?? 0, reconnectTimer: null, enabled: false, pending: [] },
     };
   }
 
@@ -66,6 +75,7 @@ export class PosTransport {
   private openChannel(channel: Channel): void {
     if (this.closed) return;
     const conn = this.conns[channel];
+    conn.enabled = true;
     if (conn.reconnectTimer) {
       clearTimeout(conn.reconnectTimer);
       conn.reconnectTimer = null;
@@ -79,11 +89,17 @@ export class PosTransport {
     socket.on('connect', () => {
       console.log(`[PosTransport] ${channel}: connected to ${this.host}:${conn.port}`);
       if (channel === 'vj') this.vjBuffer = '';
+      if (channel === 'scanner') this.scannerBuffer = '';
+      this.flushPending(channel, socket);
       this.setState(channel, 'connected');
     });
-    // The player writes completer injects back down the VJ socket.
+    // The player writes completer injects back down the VJ socket (CA/radiant6)
+    // or the scanner socket (US Topaz — writeToHost, as if physically scanned).
     if (channel === 'vj') {
       socket.on('data', (data: Buffer) => this.handleVjData(data.toString('utf-8')));
+    }
+    if (channel === 'scanner') {
+      socket.on('data', (data: Buffer) => this.handleScannerData(data.toString('utf-8')));
     }
     socket.on('error', (err: Error) => {
       console.warn(`[PosTransport] ${channel}: socket error — ${err.message}`);
@@ -105,7 +121,13 @@ export class PosTransport {
     }, this.reconnectDelayMs);
   }
 
-  /** Write bytes to a channel. No-op (returns false) if not connected. */
+  /**
+   * Write bytes to a channel. While an enabled channel is down (player
+   * restarting, socket reconnecting) the bytes are queued and flushed FIFO on
+   * (re)connect — a scanner echo must not be lost while its VJ line survives,
+   * or the player rings a UPC-less line. Channels never opened for this
+   * register type still drop. Returns true only when written immediately.
+   */
   send(channel: Channel, data: string): boolean {
     const conn = this.conns[channel];
     if (conn.socket && conn.state === 'connected') {
@@ -113,8 +135,28 @@ export class PosTransport {
       console.log(`[PosTransport] → ${channel}: ${JSON.stringify(data.replace(/\r\n$/, ''))}`);
       return true;
     }
+    if (conn.enabled && !this.closed) {
+      if (conn.pending.length >= MAX_PENDING) {
+        const dropped = conn.pending.shift();
+        console.warn(`[PosTransport] ✗ ${channel} queue full — dropped oldest: ${JSON.stringify((dropped ?? '').replace(/\r\n$/, ''))}`);
+      }
+      conn.pending.push(data);
+      console.warn(`[PosTransport] ⏸ ${channel} not connected — queued (${conn.pending.length} pending): ${JSON.stringify(data.replace(/\r\n$/, ''))}`);
+      return false;
+    }
     console.warn(`[PosTransport] ✗ ${channel} not connected — dropped: ${JSON.stringify(data.replace(/\r\n$/, ''))}`);
     return false;
+  }
+
+  /** Write any messages queued while the channel was down, in send order. */
+  private flushPending(channel: Channel, socket: net.Socket): void {
+    const conn = this.conns[channel];
+    if (conn.pending.length === 0) return;
+    console.log(`[PosTransport] ${channel}: flushing ${conn.pending.length} queued message(s)`);
+    for (const data of conn.pending.splice(0)) {
+      socket.write(data);
+      console.log(`[PosTransport] → ${channel} (queued): ${JSON.stringify(data.replace(/\r\n$/, ''))}`);
+    }
   }
 
   /** Buffer inbound VJ bytes, split into lines, and emit any inject commands. */
@@ -132,6 +174,29 @@ export class PosTransport {
     }
   }
 
+  /**
+   * Buffer inbound scanner bytes and emit an inject per completed line. The
+   * player's US completer flow writes the item code to the register's scanner
+   * input (BarcodeScanner.writeToHost), one write per unit, POS-formatted and
+   * terminated with the device's line separator — so each line is one scan.
+   * Parse leniently: take the longest digit run (POS format templates may add
+   * prefixes/suffixes; serial framing may add control bytes).
+   */
+  private handleScannerData(chunk: string): void {
+    this.scannerBuffer += chunk;
+    let idx: number;
+    while ((idx = this.scannerBuffer.search(/[\r\n]/)) >= 0) {
+      const line = this.scannerBuffer.slice(0, idx);
+      this.scannerBuffer = this.scannerBuffer.slice(idx + 1);
+      const digitRuns = line.match(/\d+/g);
+      if (!digitRuns) continue;
+      const barcode = digitRuns.reduce((a, b) => (b.length > a.length ? b : a), '');
+      if (barcode.length < 4) continue;
+      console.log(`[PosTransport] ← scanner inject: ${barcode}`);
+      for (const l of this.injectListeners) l({ barcode, quantity: 1 });
+    }
+  }
+
   status(): Status {
     return { vj: this.conns.vj.state, pole: this.conns.pole.state, scanner: this.conns.scanner.state };
   }
@@ -140,7 +205,7 @@ export class PosTransport {
     this.statusListeners.push(listener);
   }
 
-  /** Subscribe to completer injects received from the player on the VJ socket. */
+  /** Subscribe to completer injects from the player (VJ EventId 2001 or a US scanner-channel write). */
   onInject(listener: (cmd: InjectCommand) => void): void {
     this.injectListeners.push(listener);
   }
@@ -164,6 +229,8 @@ export class PosTransport {
       conn.socket?.destroy();
       conn.socket = null;
       conn.state = 'disconnected';
+      conn.enabled = false;
+      conn.pending = [];
     }
   }
 }

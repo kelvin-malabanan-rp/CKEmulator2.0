@@ -47,6 +47,11 @@ describe('TopazEncoder VJ framing', () => {
     }
   });
 
+  it('fuelPrepay keeps the # marker so the line routes to the parser fuel branch', () => {
+    const payload = payloadOf(enc.fuelPrepay({ description: 'PREPAY CA #05', priceCents: 3000 }));
+    expect(payload).toBe('PREPAY CA # 05   1    30.00');
+  });
+
   it('sanitizes descriptions: strips #, truncates to 20, pads to 5 printable chars', () => {
     const hash = payloadOf(enc.itemAdd({ description: 'ITEM #4 SPECIAL', priceCents: 100, quantity: 1 }));
     expect(hash).not.toContain('#');

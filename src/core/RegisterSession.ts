@@ -230,6 +230,14 @@ export class RegisterSession {
       return messages;
     }
     if (this.isTopaz) {
+      // A prepay-fuel ITEM carries the pump in its description ("PREPAY CA #05").
+      // The `#` routes it to the player's fuel branch, so emit that format —
+      // no scanner echo (fuel has no barcode) and no sanitized generic line.
+      if (/#\s*\d/.test(li.description)) {
+        messages.push({ channel: 'vj', data: this.topaz.fuelPrepay({ description: li.description, priceCents: li.unitPriceCents }) });
+        messages.push({ channel: 'pole', data: this.topaz.poleItem(li.description, li.unitPriceCents) });
+        return messages;
+      }
       messages.push(...this.topazItemMessages(li.code, li.description, li.quantity, li.unitPriceCents));
       return messages;
     }

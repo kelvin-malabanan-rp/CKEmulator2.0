@@ -1,9 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
   extractTriggersCompleters,
+  findAnyCompleter,
+  findPrepayItem,
   isLegitimateAd,
   orderAds,
   isInteractiveTemplate,
+  type AdItem,
   type AdTriggersCompleters,
 } from './adTriggers';
 
@@ -140,6 +143,87 @@ describe('isLegitimateAd', () => {
     expect(isLegitimateAd({ id: 20, name: 'NoTemplate' })).toBe(false);
     expect(isLegitimateAd({ id: 21, name: 'Empty', templatename: '' })).toBe(false);
     expect(isLegitimateAd({ id: 22, name: 'Spaces', templatename: '   ' })).toBe(false);
+  });
+});
+
+describe('findPrepayItem', () => {
+  const ad = (id: string, triggers: AdItem[], completers: AdItem[] = []): AdTriggersCompleters => ({
+    id,
+    name: `ad ${id}`,
+    template: 'Basket Offer',
+    triggers,
+    completers,
+    completerConditionTypes: [],
+    silentCapable: false,
+  });
+
+  it('finds the first item whose description mentions prepay (case-insensitive)', () => {
+    const ads = [
+      ad('1', [{ code: '028200009654', description: 'MARLBORO GOLD' }]),
+      ad('2', [{ code: '000000000105', description: 'Prepay CA #02' }]),
+    ];
+    expect(findPrepayItem(ads)).toEqual({ code: '000000000105', description: 'Prepay CA #02' });
+  });
+
+  it('checks completers too, after that ad\'s triggers', () => {
+    const ads = [ad('1', [{ code: '1', description: 'COKE 500ML' }], [{ code: '9', description: 'FUEL PREPAY' }])];
+    expect(findPrepayItem(ads)).toEqual({ code: '9', description: 'FUEL PREPAY' });
+  });
+
+  it('surfaces the prepay ad\'s first completer (excluding the prepay item itself)', () => {
+    const ads = [
+      ad(
+        '1',
+        [{ code: '000000000105', description: 'PREPAY CA #02' }],
+        [
+          { code: '000000000105', description: 'PREPAY CA #02' },
+          { code: '049000000443', description: 'Coke 20oz' },
+        ],
+      ),
+    ];
+    expect(findPrepayItem(ads)).toEqual({
+      code: '000000000105',
+      description: 'PREPAY CA #02',
+      completer: { code: '049000000443', description: 'Coke 20oz' },
+    });
+  });
+
+  it('omits the completer when the ad has none besides the prepay item', () => {
+    const ads = [ad('1', [{ code: '105', description: 'FUEL PREPAY' }], [{ code: '105', description: 'FUEL PREPAY' }])];
+    expect(findPrepayItem(ads)).toEqual({ code: '105', description: 'FUEL PREPAY' });
+  });
+
+  it('skips items with no description and returns null when nothing matches', () => {
+    expect(findPrepayItem([ad('1', [{ code: '000000000105' }, { code: '2', description: 'PEPSI' }])])).toBeNull();
+    expect(findPrepayItem([])).toBeNull();
+  });
+});
+
+describe('findAnyCompleter', () => {
+  const ad = (id: string, completers: AdItem[]): AdTriggersCompleters => ({
+    id,
+    name: `ad ${id}`,
+    template: 'Basket Offer',
+    triggers: [],
+    completers,
+    completerConditionTypes: [],
+    silentCapable: false,
+  });
+
+  it('returns the first completer across the loaded ads', () => {
+    const ads = [ad('1', []), ad('2', [{ code: '049000000443', description: 'Coke 20oz' }, { code: '2' }])];
+    expect(findAnyCompleter(ads)).toEqual({ code: '049000000443', description: 'Coke 20oz' });
+  });
+
+  it('skips the excluded code (the prepay item itself)', () => {
+    const ads = [ad('1', [{ code: '105', description: 'PREPAY CA #02' }, { code: '9', description: 'Water' }])];
+    expect(findAnyCompleter(ads, '105')).toEqual({ code: '9', description: 'Water' });
+  });
+
+  it('returns null when no ad has a usable completer', () => {
+    expect(findAnyCompleter([ad('1', [])])).toBeNull();
+    expect(findAnyCompleter([ad('1', [{ code: '105' }])], '105')).toBeNull();
+    expect(findAnyCompleter([])).toBeNull();
   });
 });
 
