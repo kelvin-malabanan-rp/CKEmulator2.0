@@ -15,8 +15,33 @@ export type Status = Record<Channel, ConnState>;
  * (see RegisterSession). verifone-topaz adds a third feed (scanner) —
  * in prod all three are serial COM ports, so the emulator uses its own
  * TCP port convention (see below).
+ *
+ * verifone-topaz-lol is NOT a different protocol — it is plain Verifone Topaz
+ * pre-pointed at the LoL Linux player VM (see LOL_VM_HOST). It normalizes to
+ * 'verifone-topaz' at every behavior boundary via baseRegisterType(), so it
+ * shares the encoder, scenarios, ports and en-US-only locale — only the
+ * default connection host differs.
  */
-export type RegisterType = 'radiant6-canada' | 'radiant6-us' | 'bulloch' | 'verifone-topaz';
+export type RegisterType =
+  | 'radiant6-canada'
+  | 'radiant6-us'
+  | 'bulloch'
+  | 'verifone-topaz'
+  | 'verifone-topaz-lol';
+
+/** NetBird address of the LoL legacy-LIFT-on-Linux player (display :10, lane player2_lane1). */
+export const LOL_VM_HOST = '100.6.7.113';
+
+/**
+ * Collapse a register type to the base type whose protocol/scenario behavior
+ * it uses. Only verifone-topaz-lol aliases (→ verifone-topaz); every other
+ * type maps to itself. Callers that branch on protocol (RegisterSession,
+ * PosTransport, scenario filtering) normalize through this so the LoL preset
+ * never needs its own copy of that logic.
+ */
+export function baseRegisterType(type: RegisterType): RegisterType {
+  return type === 'verifone-topaz-lol' ? 'verifone-topaz' : type;
+}
 
 /**
  * Per-register-type defaults (the ports the player listens on). Radiant6
@@ -38,11 +63,21 @@ export const REGISTER_TYPES: ReadonlyArray<{
   vjPort: number;
   polePort: number;
   scannerPort?: number;
+  /** Connection host applied when this type is picked; omitted → 127.0.0.1 (local emulator dev). */
+  defaultHost?: string;
 }> = [
   { value: 'radiant6-canada', label: 'Radiant6 Canada', vjPort: 5438, polePort: 5439 },
   { value: 'radiant6-us', label: 'Radiant6 US', vjPort: 5438, polePort: 5439 },
   { value: 'bulloch', label: 'Bulloch', vjPort: 5438, polePort: 5440 },
   { value: 'verifone-topaz', label: 'Verifone Topaz', vjPort: 10002, polePort: 10001, scannerPort: 10000 },
+  {
+    value: 'verifone-topaz-lol',
+    label: 'Verifone Topaz (LoL)',
+    vjPort: 10002,
+    polePort: 10001,
+    scannerPort: 10000,
+    defaultHost: LOL_VM_HOST,
+  },
 ];
 
 /** Look up the VJ/pole (and, for Topaz, scanner) ports for a register type. */
@@ -55,6 +90,11 @@ export function portsForRegisterType(
     polePort: entry.polePort,
     ...(entry.scannerPort !== undefined ? { scannerPort: entry.scannerPort } : {}),
   };
+}
+
+/** The default connection host for a register type — the LoL VM for the LoL preset, else localhost. */
+export function hostForRegisterType(type: RegisterType): string {
+  return REGISTER_TYPES.find((r) => r.value === type)?.defaultHost ?? DEFAULT_POS_CONFIG.host;
 }
 
 /** Connection target for the CK Player 2.0 CA adapters. */

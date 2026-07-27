@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { PRICEBOOK, useEmulator } from './useEmulator';
 import { useScenarioRunner } from './useScenarioRunner';
 import { findAnyCompleter, findPrepayItem } from '../../core/adTriggers';
-import { type ScenarioParams } from '../../core/scenarios';
-import { REGISTER_TYPES, portsForRegisterType, type RegisterType } from '../../core/posTypes';
+import { builtinScenarios, type ScenarioParams } from '../../core/scenarios';
+import { baseRegisterType } from '../../core/posTypes';
 import { usePersistedState } from './usePersistedState';
 import {
   SCENARIO_CARD_KEY,
@@ -21,13 +21,26 @@ import {
   parsePrepayCents,
   parsePrepayPump,
 } from './scenarioSettings';
-import { Dot } from './components/Dot';
+import {
+  THEME_KEY,
+  parseTheme,
+  systemDefaultTheme,
+  PANEL_TAB_KEY,
+  DEFAULT_PANEL_TAB,
+  parsePanelTab,
+} from './uiSettings';
+import { TopBar } from './components/TopBar';
 import { QuickKeys } from './components/QuickKeys';
-import { LoyaltyInput } from './components/LoyaltyInput';
 import { TriggersCompleters } from './components/TriggersCompleters';
-import { Scenarios } from './components/Scenarios';
 import { TransactionPanel } from './components/TransactionPanel';
+import { InfoPanel } from './components/InfoPanel';
 import './App.css';
+
+/** OS preference read once for the first-load theme default (no persisted choice). */
+const prefersLight =
+  typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+    ? window.matchMedia('(prefers-color-scheme: light)').matches
+    : false;
 
 function App(): JSX.Element {
   const e = useEmulator();
@@ -37,14 +50,21 @@ function App(): JSX.Element {
   const { snapshot } = e;
   const locale = snapshot.locale;
 
-  // Right column shows either the Wire Log or the Scenarios panel. Starting a
-  // run (incl. per-ad Silent ▶ from the left column) switches to Scenarios so
-  // the step ticker is visible.
-  const [rightTab, setRightTab] = useState<'log' | 'scenarios'>('log');
+  // Colour theme (dark / dimmed / light), persisted. First load with no saved
+  // choice follows the OS prefers-color-scheme. Applied as data-theme on <html>
+  // so the token overrides cascade to the whole document.
+  const [theme, setTheme] = usePersistedState(THEME_KEY, systemDefaultTheme(prefersLight), parseTheme);
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+  }, [theme]);
+
+  // Active tab of the bottom-right quadrant, persisted. Starting a scenario run
+  // (incl. per-ad Silent ▶) switches to the Scenarios tab so the ticker shows.
+  const [panelTab, setPanelTab] = usePersistedState(PANEL_TAB_KEY, DEFAULT_PANEL_TAB, parsePanelTab);
   const running = r.running;
   useEffect(() => {
-    if (running !== null) setRightTab('scenarios');
-  }, [running]);
+    if (running !== null) setPanelTab('scenarios');
+  }, [running, setPanelTab]);
 
   // Scenario knobs, persisted to localStorage (r6ca.* keys).
   const [loyaltyCard, setLoyaltyCard] = usePersistedState(SCENARIO_CARD_KEY, DEFAULT_SCENARIO_CARD, parseString);
@@ -77,146 +97,65 @@ function App(): JSX.Element {
     };
   }, [e.quickKeyFiles, e.quickKeys, e.adDetails, loyaltyCard, upcCoupon12, stepGapMs, prepayPumpNumber, prepayAmountCents]);
 
+  // Scenarios applicable to the active lane — count is shown as a tab badge and
+  // the last run's scenario is looked up for the one-click re-run button.
+  const activeBase = baseRegisterType(e.config.registerType);
+  const scenarioCount = useMemo(
+    () => builtinScenarios(params).filter((s) => s.registerTypes.includes(activeBase)).length,
+    [params, activeBase],
+  );
+  const lastRun = r.lastResult;
+  const rerunScenario = useMemo(
+    () => (lastRun ? builtinScenarios(params).find((s) => s.id === lastRun.id) ?? null : null),
+    [lastRun, params],
+  );
+
   return (
     <div className="app">
-      <header className="bar">
-        <strong>CKEmulator 2.0</strong>
-        <span className="conn">
-          <Dot state={e.status.vj} /> VJ {e.config.host}:{e.config.vjPort}
-          <Dot state={e.status.pole} /> Pole {e.config.host}:{e.config.polePort}
-          {e.config.scannerPort !== undefined && (
-            <>
-              <Dot state={e.status.scanner} /> Scanner {e.config.host}:{e.config.scannerPort}
-            </>
-          )}
-        </span>
-        <input
-          className="host"
-          value={e.config.host}
-          onChange={(ev) => e.setConfig({ ...e.config, host: ev.target.value })}
-        />
-        <select
-          className="regtype"
-          value={e.config.registerType}
-          title="Register type — sets the VJ/pole ports automatically"
-          onChange={(ev) => {
-            const registerType = ev.target.value as RegisterType;
-            // scannerPort: undefined first so a stale Topaz port doesn't
-            // survive a switch to a scanner-less register type.
-            e.setConfig({ ...e.config, registerType, scannerPort: undefined, ...portsForRegisterType(registerType) });
-          }}
-        >
-          {REGISTER_TYPES.map((r) => (
-            <option key={r.value} value={r.value}>
-              {r.label} (VJ {r.vjPort} / Pole {r.polePort}
-              {r.scannerPort !== undefined ? ` / Scanner ${r.scannerPort}` : ''})
-            </option>
-          ))}
-        </select>
-        <button onClick={() => void e.connect()}>Connect</button>
-        <button onClick={() => void e.disconnect()}>Disconnect</button>
-        <span className="spacer" />
-        {/* US lanes (Radiant6 US, Verifone Topaz) are en-US only — hide the
-            toggle there. Switching to US while fr is active is already
-            coherent: the session rebuild carries locale through
-            RegisterSession.setLocale, which ignores 'fr' in US mode, so the
-            fresh snapshot reads 'en'. */}
-        {e.config.registerType !== 'radiant6-us' && e.config.registerType !== 'verifone-topaz' && (
-          <div className="locale">
-            <button className={locale === 'en' ? 'on' : ''} onClick={() => e.setLocale('en')}>EN-CA</button>
-            <button className={locale === 'fr' ? 'on' : ''} onClick={() => e.setLocale('fr')}>FR-CA</button>
-          </div>
-        )}
-      </header>
+      <TopBar e={e} theme={theme} setTheme={setTheme} />
 
-      <header className="bar creds">
-        <span className="lbl">Player Key</span>
-        <input
-          className="pkey"
-          type="text"
-          value={e.playerConfig.playerKey}
-          placeholder="player.key"
-          onChange={(ev) => e.setPlayerConfig({ ...e.playerConfig, playerKey: ev.target.value })}
-        />
-        <button onClick={() => void e.registerPlayer()}>Register</button>
-        <small className="hint">
-          Register resolves the datacenter, player code &amp; backend automatically (like CKP2 + legacy).
-        </small>
-      </header>
-
-      {(e.globalInit || e.globalInitError) && (
-        <div className="initcfg">
-          {e.globalInit ? (
-            <>
-              <div className="initmeta">
-                <span>player.code=<b>{e.globalInit.playerCode}</b></span>
-                <span>tenant=<b>{e.globalInit.tenant}</b></span>
-                <span>{e.globalInit.datacenter}</span>
-              </div>
-              <pre>{e.globalInit.raw}</pre>
-            </>
-          ) : (
-            <div className="initerr">Register failed: {e.globalInitError}</div>
-          )}
-        </div>
-      )}
-
-      <div className="body">
-        <section className="left">
-          <div className="qkhead">
-            <h3>Quick Keys</h3>
-            <button className="qkreload" onClick={() => void e.reloadQuickKeys()} title="Reload quick keys from the .qk files">
-              ↻ Reload
-            </button>
-          </div>
+      {/* Fixed 2×2 grid: Quick Keys / Transaction on top, Ads / Info below.
+          Each quadrant is a fixed box that scrolls its own overflow. */}
+      <div className="grid2x2">
+        <section className="quad quad-qk">
           <QuickKeys e={e} locale={locale} />
+        </section>
 
-          <LoyaltyInput e={e} />
+        <section className="quad quad-tx">
+          <TransactionPanel e={e} locale={locale} />
+        </section>
 
-          <h3>Triggers &amp; Completers</h3>
+        <section className="quad quad-ads">
+          <div className="adshead">
+            <span className="adstitle">Ads</span>
+            <span className="adscount">{e.adManifest.length}</span>
+          </div>
           <TriggersCompleters e={e} r={r} params={params} />
         </section>
 
-        <TransactionPanel e={e} locale={locale} />
-
-        <section className="right">
-          <div className="loghead">
-            <div className="tabs">
-              <button className={rightTab === 'scenarios' ? 'on' : ''} onClick={() => setRightTab('scenarios')}>
-                Scenarios
-              </button>
-              <button className={rightTab === 'log' ? 'on' : ''} onClick={() => setRightTab('log')}>
-                Wire Log
-              </button>
-            </div>
-            {rightTab === 'log' && <button onClick={e.clearLog}>clear</button>}
-          </div>
-          {rightTab === 'scenarios' ? (
-            <Scenarios
-              e={e}
-              r={r}
-              params={params}
-              loyaltyCard={loyaltyCard}
-              setLoyaltyCard={setLoyaltyCard}
-              stepGapMs={stepGapMs}
-              setStepGapMs={setStepGapMs}
-              upcCoupon12={upcCoupon12}
-              setUpcCoupon12={setUpcCoupon12}
-              prepayAmountCents={prepayAmountCents}
-              setPrepayAmountCents={setPrepayAmountCents}
-              prepayPumpNumber={prepayPumpNumber}
-              setPrepayPumpNumber={setPrepayPumpNumber}
-            />
-          ) : (
-            <div className="log">
-              {e.log.map((l) => (
-                <div key={l.id} className={`logline ${l.channel}`}>
-                  <span className="tag">{l.channel.toUpperCase()}</span>
-                  <code>{l.text}</code>
-                </div>
-              ))}
-            </div>
-          )}
+        <section className="quad quad-info">
+          <InfoPanel
+            e={e}
+            r={r}
+            params={params}
+            tab={panelTab}
+            setTab={setPanelTab}
+            scenarioCount={scenarioCount}
+            lastRun={lastRun}
+            rerunScenario={rerunScenario}
+            scenario={{
+              loyaltyCard,
+              setLoyaltyCard,
+              stepGapMs,
+              setStepGapMs,
+              upcCoupon12,
+              setUpcCoupon12,
+              prepayAmountCents,
+              setPrepayAmountCents,
+              prepayPumpNumber,
+              setPrepayPumpNumber,
+            }}
+          />
         </section>
       </div>
     </div>

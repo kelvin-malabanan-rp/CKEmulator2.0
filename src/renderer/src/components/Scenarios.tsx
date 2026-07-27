@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { builtinScenarios, describeStep, type ScenarioParams } from '../../../core/scenarios';
 import type { RunResult, StepResult, StepStatus } from '../../../core/scenarioRunner';
-import type { RegisterType } from '../../../core/posTypes';
+import { baseRegisterType, type RegisterType } from '../../../core/posTypes';
 import { DEFAULT_STEP_GAP_MS, DEFAULT_PREPAY_CENTS, DEFAULT_PREPAY_PUMP } from '../scenarioSettings';
 import type { useEmulator } from '../useEmulator';
 import type { useScenarioRunner } from '../useScenarioRunner';
@@ -20,6 +20,7 @@ const REGISTER_TAG: Record<RegisterType, string> = {
   'radiant6-us': 'US',
   bulloch: 'BUL',
   'verifone-topaz': 'TPZ',
+  'verifone-topaz-lol': 'LoL',
 };
 
 const REGISTER_TAG_TITLE: Record<RegisterType, string> = {
@@ -27,6 +28,7 @@ const REGISTER_TAG_TITLE: Record<RegisterType, string> = {
   'radiant6-us': 'Radiant6 US',
   bulloch: 'Bulloch (Canada, pole-only)',
   'verifone-topaz': 'Verifone Topaz (US, plaintext VJ + scanner)',
+  'verifone-topaz-lol': 'Verifone Topaz — LoL VM (US, plaintext VJ + scanner)',
 };
 
 /** Compact per-step trail: `n/m kind glyph [detail]` — used live and for the last result. */
@@ -103,9 +105,12 @@ export function Scenarios({
   setPrepayPumpNumber: (pump: number) => void;
 }): JSX.Element {
   const registerType = e.config.registerType;
+  // LoL is Topaz on the VM — filter and accent scenarios by the base protocol
+  // type so the LoL lane shows exactly the Topaz scenarios.
+  const activeBase = baseRegisterType(registerType);
   const list = useMemo(
-    () => builtinScenarios(params).filter((s) => s.registerTypes.includes(registerType)),
-    [params, registerType],
+    () => builtinScenarios(params).filter((s) => s.registerTypes.includes(activeBase)),
+    [params, activeBase],
   );
   // Runs started elsewhere (the per-ad Silent ▶ buttons) aren't in the list;
   // give them a row at the bottom so their ticker/outcome still shows.
@@ -207,7 +212,7 @@ export function Scenarios({
                 </button>
                 <span className="sctags">
                   {s.registerTypes.map((t) => (
-                    <span key={t} className={`sctag${t === registerType ? ' on' : ''}`} title={REGISTER_TAG_TITLE[t]}>
+                    <span key={t} className={`sctag${t === activeBase ? ' on' : ''}`} title={REGISTER_TAG_TITLE[t]}>
                       {REGISTER_TAG[t]}
                     </span>
                   ))}

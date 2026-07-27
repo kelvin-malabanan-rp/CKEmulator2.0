@@ -5,6 +5,9 @@ import {
   DEFAULT_PLAYER_CONFIG,
   REGISTER_TYPES,
   portsForRegisterType,
+  hostForRegisterType,
+  baseRegisterType,
+  LOL_VM_HOST,
 } from './posTypes';
 
 describe('normalizePlayerConfig', () => {
@@ -47,12 +50,13 @@ describe('register types & ports', () => {
     expect(portsForRegisterType('bulloch')).toEqual({ vjPort: 5438, polePort: 5440 });
   });
 
-  it('lists exactly the four register types with labels', () => {
+  it('lists exactly the five register types with labels', () => {
     expect(REGISTER_TYPES.map((r) => r.value)).toEqual([
       'radiant6-canada',
       'radiant6-us',
       'bulloch',
       'verifone-topaz',
+      'verifone-topaz-lol',
     ]);
     expect(REGISTER_TYPES.find((r) => r.value === 'bulloch')?.label).toBe('Bulloch');
   });
@@ -91,5 +95,46 @@ describe('register types & ports', () => {
       vjPort: 5438,
       polePort: 5439,
     });
+  });
+
+  it('maps Verifone Topaz (LoL) to the same Topaz ports, pre-pointed at the LoL VM', () => {
+    expect(portsForRegisterType('verifone-topaz-lol')).toEqual({
+      vjPort: 10002,
+      polePort: 10001,
+      scannerPort: 10000,
+    });
+    expect(REGISTER_TYPES.find((r) => r.value === 'verifone-topaz-lol')).toEqual({
+      value: 'verifone-topaz-lol',
+      label: 'Verifone Topaz (LoL)',
+      vjPort: 10002,
+      polePort: 10001,
+      scannerPort: 10000,
+      defaultHost: LOL_VM_HOST,
+    });
+  });
+});
+
+describe('hostForRegisterType', () => {
+  it('returns the LoL VM host for the LoL preset', () => {
+    expect(hostForRegisterType('verifone-topaz-lol')).toBe(LOL_VM_HOST);
+    expect(LOL_VM_HOST).toBe('100.6.7.113');
+  });
+
+  it('falls back to localhost for types without a default host', () => {
+    for (const t of ['radiant6-canada', 'radiant6-us', 'bulloch', 'verifone-topaz'] as const) {
+      expect(hostForRegisterType(t)).toBe('127.0.0.1');
+    }
+  });
+});
+
+describe('baseRegisterType', () => {
+  it('aliases verifone-topaz-lol to verifone-topaz', () => {
+    expect(baseRegisterType('verifone-topaz-lol')).toBe('verifone-topaz');
+  });
+
+  it('maps every other register type to itself', () => {
+    for (const t of ['radiant6-canada', 'radiant6-us', 'bulloch', 'verifone-topaz'] as const) {
+      expect(baseRegisterType(t)).toBe(t);
+    }
   });
 });

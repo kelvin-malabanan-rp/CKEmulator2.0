@@ -367,6 +367,17 @@ describe('RegisterSession — Verifone Topaz (VJ + pole + scanner)', () => {
     for (const m of msgs) expect(m.data).not.toContain('EventId=');
   });
 
+  it('verifone-topaz-lol is byte-identical to verifone-topaz (LoL is Topaz on the VM)', () => {
+    const lol = new RegisterSession({ registerType: 'verifone-topaz-lol' });
+    const base = topaz();
+    const addLol = lol.addItem({ code: '049000000443', description: 'COKE 20OZ', priceCents: 219 });
+    const addBase = base.addItem({ code: '049000000443', description: 'COKE 20OZ', priceCents: 219 });
+    expect(addLol.map((m) => `${m.channel}:${m.data}`)).toEqual(addBase.map((m) => `${m.channel}:${m.data}`));
+    // And it inherits Topaz's en-US-only locale (fr ignored).
+    lol.setLocale('fr');
+    expect(lol.snapshot().locale).toBe('en');
+  });
+
   it('a prepay-fuel item (# in the description) emits the fuel VJ line with no scanner echo', () => {
     const s = topaz();
     s.open(); // consume the one-time CSH: lane-open line
