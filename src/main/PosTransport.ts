@@ -7,6 +7,7 @@
  * Node-only (uses `net`). Holds NO business logic — it ships bytes.
  */
 import net from 'net';
+import { baseRegisterType } from '../core/posTypes';
 import type { Channel, ConnState, Status, PosConfig, RegisterType } from '../core/posTypes';
 import { parseInjectCommand, type InjectCommand } from '../core/injectProtocol';
 
@@ -47,7 +48,9 @@ export class PosTransport {
   constructor(config: PosTransportConfig) {
     this.host = config.host;
     this.reconnectDelayMs = config.reconnectDelayMs ?? 2000;
-    this.registerType = config.registerType;
+    // verifone-topaz-lol is Topaz on the LoL VM; normalize so the scanner-feed
+    // decision (and any future protocol branch) matches plain Topaz.
+    this.registerType = baseRegisterType(config.registerType);
     this.conns = {
       vj: { socket: null, state: 'disconnected', port: config.vjPort, reconnectTimer: null, enabled: false, pending: [] },
       pole: { socket: null, state: 'disconnected', port: config.polePort, reconnectTimer: null, enabled: false, pending: [] },

@@ -9,7 +9,7 @@ import { Basket } from './Basket';
 import { Radiant6CanadaEncoder } from './Radiant6CanadaEncoder';
 import { BullochEncoder } from './BullochEncoder';
 import { TopazEncoder } from './TopazEncoder';
-import type { Channel, RegisterType } from './posTypes';
+import { baseRegisterType, type Channel, type RegisterType } from './posTypes';
 import type { PosLocale } from './currency';
 
 export interface WireMessage {
@@ -89,7 +89,9 @@ export class RegisterSession {
       registerId: options.terminalNumber ?? 1,
       clock: options.clock,
     });
-    this.registerType = options.registerType ?? 'radiant6-canada';
+    // Normalize to the base protocol type: verifone-topaz-lol is plain Topaz
+    // pointed at the LoL VM, so all downstream behavior checks see 'verifone-topaz'.
+    this.registerType = baseRegisterType(options.registerType ?? 'radiant6-canada');
     this.taxRateBps = options.taxRateBps ?? 500;
     this.operatorId = options.operatorId ?? '12599';
     this.operatorName = options.operatorName ?? 'Timothy';

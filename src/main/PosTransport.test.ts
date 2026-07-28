@@ -144,6 +144,25 @@ describe('PosTransport', () => {
     expect(scanner.received()).toBe('049000000443\r\n');
   });
 
+  it('treats verifone-topaz-lol as Topaz — opens VJ, pole AND scanner', async () => {
+    const vj = await listen();
+    const pole = await listen();
+    const scanner = await listen();
+    servers.push(vj.server, pole.server, scanner.server);
+
+    transport = new PosTransport({
+      host: '127.0.0.1',
+      vjPort: vj.port,
+      polePort: pole.port,
+      scannerPort: scanner.port,
+      registerType: 'verifone-topaz-lol',
+    });
+    await transport.connect();
+    await wait(50);
+
+    expect(transport.status()).toEqual({ vj: 'connected', pole: 'connected', scanner: 'connected' });
+  });
+
   it('skips the scanner channel for non-topaz types even when a scannerPort is given', async () => {
     const vj = await listen();
     const pole = await listen();

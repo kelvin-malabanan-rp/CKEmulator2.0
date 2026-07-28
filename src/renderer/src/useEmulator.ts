@@ -27,12 +27,19 @@ import {
   type AdTriggersCompleters,
   type AdManifestEntry,
 } from '../../core/adTriggers';
+import { formatCurrency } from '../../core/currency';
+import { categorizeLog, type LogCategory } from './wireLog';
 
 export interface LogEntry {
   id: number;
   channel: WireMessage['channel'] | 'sys';
   text: string;
+  /** Absolute wall-clock time the line was logged (for tooltips). */
   at: string;
+  /** Epoch ms the line was logged (for relative "2s ago" timestamps). */
+  atMs: number;
+  /** Filter/colour category derived from the channel + text. */
+  category: LogCategory;
 }
 
 export type PricebookItem = QuickKeyItem;
@@ -59,6 +66,10 @@ export function useEmulator(): {
   snapshot: SessionSnapshot;
   injectSeq: number;
   status: Status;
+  /** True once Connect has been pressed this session — lets dots show idle (never tried) vs error (tried, down). */
+  attempted: boolean;
+  /** Text of the most recent error-category log line, for the status-dot tooltip. */
+  lastError: string | null;
   config: PosConfig;
   setConfig: (c: PosConfig) => void;
   playerConfig: PlayerConfig;
@@ -115,6 +126,9 @@ export function useEmulator(): {
 
   const [snapshot, setSnapshot] = useState<SessionSnapshot>(() => session.snapshot());
   const [status, setStatus] = useState<Status>(idleStatus);
+  // Whether Connect has been pressed this session. Lets the status dots show a
+  // neutral idle (never attempted) instead of red (attempted, handshake failed).
+  const [attempted, setAttempted] = useState(false);
   // Increments on each completer inject from the player (CKP2 completing/adding).
   const [injectSeq, setInjectSeq] = useState(0);
   const [playerConfig, setPlayerConfigState] = useState<PlayerConfig>(() => {
@@ -135,8 +149,19 @@ export function useEmulator(): {
 
   const logSys = useCallback((text: string) => {
     console.log(`[Emulator] ${text}`);
+    const now = new Date();
     setLog((prev) =>
-      [{ id: logId.current++, channel: 'sys' as const, text, at: new Date().toLocaleTimeString() }, ...prev].slice(0, 300),
+      [
+        {
+          id: logId.current++,
+          channel: 'sys' as const,
+          text,
+          at: now.toLocaleTimeString(),
+          atMs: now.getTime(),
+          category: categorizeLog('sys', text),
+        },
+        ...prev,
+      ].slice(0, 300),
     );
   }, []);
 
@@ -340,11 +365,15 @@ export function useEmulator(): {
       const entries: LogEntry[] = [];
       for (const m of messages) {
         void window.emulator.send(m.channel, m.data);
+        const now = new Date();
+        const text = m.data.replace(/\r\n$/, '');
         entries.push({
           id: logId.current++,
           channel: m.channel,
-          text: m.data.replace(/\r\n$/, ''),
-          at: new Date().toLocaleTimeString(),
+          text,
+          at: now.toLocaleTimeString(),
+          atMs: now.getTime(),
+          category: categorizeLog(m.channel, text),
         });
       }
       setLog((prev) => [...entries.reverse(), ...prev].slice(0, 300));
@@ -373,15 +402,21 @@ export function useEmulator(): {
   const connect = useCallback(async () => {
     const scannerNote = config.scannerPort !== undefined ? `, scanner ${config.scannerPort}` : '';
     logSys(`Connecting to ${config.host} (VJ ${config.vjPort}, pole ${config.polePort}${scannerNote})…`);
+    setAttempted(true);
     const s = await window.emulator.connect(config);
     setStatus(s);
   }, [config, logSys]);
 
   const disconnect = useCallback(async () => {
     logSys('Disconnecting…');
+    setAttempted(false);
     const s = await window.emulator.disconnect();
     setStatus(s);
   }, [logSys]);
+
+  // Most recent error-category line, surfaced in the status-dot tooltip. Log is
+  // newest-first, so the first error match is the latest one.
+  const lastError = useMemo(() => log.find((l) => l.category === 'error')?.text ?? null, [log]);
 
   const setLocale = useCallback(
     (l: PosLocale) => {
@@ -454,6 +489,8 @@ export function useEmulator(): {
       snapshot,
       injectSeq,
       status,
+      attempted,
+      lastError,
       config,
       setConfig,
       playerConfig,
@@ -500,7 +537,13 @@ export function useEmulator(): {
       setPrice: (lineNumber: number, priceCents: number) => dispatch(session.setPrice(lineNumber, priceCents)),
       loyalty: (cardNumber: string) => dispatch(session.loyalty(cardNumber)),
       tender: (kind: TenderKind, amountCents?: number) => dispatch(session.tender(kind, amountCents)),
-      voidTicket: () => dispatch(session.voidTicket()),
+      voidTicket: () => {
+        // Log the void distinctly (item count + total) so it's traceable in the
+        // wire log after the basket has been cleared.
+        const items = snapshot.lines.filter((l) => !l.voided).length;
+        logSys(`VOID: ${items} item${items === 1 ? '' : 's'}, ${formatCurrency(snapshot.totalCents, snapshot.locale)}`);
+        dispatch(session.voidTicket());
+      },
       suspend: () => dispatch(session.suspend()),
       resume: () => dispatch(session.resume()),
     }),
@@ -508,6 +551,8 @@ export function useEmulator(): {
       snapshot,
       injectSeq,
       status,
+      attempted,
+      lastError,
       config,
       playerConfig,
       setPlayerConfig,

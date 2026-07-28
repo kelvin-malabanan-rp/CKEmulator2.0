@@ -15,6 +15,7 @@ import {
   type StepResult,
 } from '../../core/scenarioRunner';
 import type { Scenario } from '../../core/scenarios';
+import { baseRegisterType } from '../../core/posTypes';
 import type { SessionSnapshot } from '../../core/RegisterSession';
 import type { useEmulator } from './useEmulator';
 
@@ -23,14 +24,16 @@ export function useScenarioRunner(e: ReturnType<typeof useEmulator>): {
   /** Display name of the active scenario (for rows keyed off `running`). */
   runningName: string | null;
   progress: StepResult[];
-  lastResult: { id: string; name: string; result: RunResult } | null;
+  lastResult: { id: string; name: string; result: RunResult; ranAt: number } | null;
   runScenario: (s: Scenario) => Promise<void>;
   cancel: () => void;
 } {
   const [running, setRunning] = useState<string | null>(null);
   const [runningName, setRunningName] = useState<string | null>(null);
   const [progress, setProgress] = useState<StepResult[]>([]);
-  const [lastResult, setLastResult] = useState<{ id: string; name: string; result: RunResult } | null>(null);
+  const [lastResult, setLastResult] = useState<{ id: string; name: string; result: RunResult; ranAt: number } | null>(
+    null,
+  );
 
   // One single-use ScenarioRunner per run (see its class JSDoc); null when idle.
   const runnerRef = useRef<ScenarioRunner | null>(null);
@@ -75,12 +78,14 @@ export function useScenarioRunner(e: ReturnType<typeof useEmulator>): {
       return;
     }
     const emu = emulatorRef.current;
-    if (!s.registerTypes.includes(emu.config.registerType)) {
+    // LoL is Topaz on the VM — check applicability against the base protocol type.
+    if (!s.registerTypes.includes(baseRegisterType(emu.config.registerType))) {
       console.log(`[Scenario] ✘ ${s.id} fail: not applicable to ${emu.config.registerType}`);
       setProgress([]);
       setLastResult({
         id: s.id,
         name: s.name,
+        ranAt: Date.now(),
         result: {
           verdict: 'fail',
           steps: [
@@ -100,6 +105,7 @@ export function useScenarioRunner(e: ReturnType<typeof useEmulator>): {
       setLastResult({
         id: s.id,
         name: s.name,
+        ranAt: Date.now(),
         result: {
           verdict: 'fail',
           steps: [{ step: s.steps[0], status: 'fail', detail: 'not connected', elapsedMs: 0 }],
@@ -163,7 +169,7 @@ export function useScenarioRunner(e: ReturnType<typeof useEmulator>): {
           `[Scenario] ✘ ${s.id} fail at step ${failIndex + 1}: ${failed?.detail ?? failed?.step.kind ?? 'unknown'}`,
         );
       }
-      if (live()) setLastResult({ id: s.id, name: s.name, result });
+      if (live()) setLastResult({ id: s.id, name: s.name, result, ranAt: Date.now() });
     } finally {
       unsubscribe();
       if (runnerRef.current === runner) runnerRef.current = null;
