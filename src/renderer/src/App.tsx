@@ -128,7 +128,6 @@ function App(): JSX.Element {
         <section className="quad quad-ads">
           <div className="adshead">
             <span className="adstitle">Ads</span>
-            <span className="adscount">{e.adManifest.length}</span>
           </div>
           <TriggersCompleters e={e} r={r} params={params} />
         </section>

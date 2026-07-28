@@ -170,8 +170,11 @@ h3 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing
 
 .connbtn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); background: var(--control-bg); color: var(--text); border-radius: var(--r-ctrl); padding: 7px 14px; font-weight: 600; cursor: pointer; }
 .connbtn:hover { background: var(--control-hover); }
-.connbtn.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
-.connbtn.primary:hover { background: var(--accent-hover); }
+/* Connect is a setup/secondary action (not the terminal action of a task), so it
+   reads as an OUTLINED accent button — it shouldn't compete with the solid-amber
+   Cash tender buttons for visual weight. */
+.connbtn.primary { background: transparent; color: var(--accent); border-color: var(--accent); }
+.connbtn.primary:hover { background: color-mix(in srgb, var(--accent) 14%, var(--card-bg)); }
 .connbtnicon { width: 15px; height: 15px; }
 
 /* Fixed 2×2 quadrant grid filling the viewport below the top bar. Left column
@@ -194,10 +197,10 @@ h3 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing
 .quad-qk, .quad-tx, .quad-ads { padding: 12px; }
 .quad-tx { padding: 14px 16px; }
 
-/* Ads quadrant header — "Ads · N". */
+/* Ads quadrant header — just the title. The ad count lives on the Load ads button
+   (where the action and its resulting count belong together), not duplicated here. */
 .adshead { flex: 0 0 auto; display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
 .adstitle { font-size: 12px; text-transform: uppercase; letter-spacing: .5px; color: var(--text-muted); font-weight: 700; }
-.adscount { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); }
 
 /* Quick keys (pinned search + scrollable 1-column list) ------------------ */
 .qk { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; }
@@ -222,7 +225,9 @@ h3 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing
    sits flush to the card's right edge. */
 .keyname { font-size: 13px; line-height: 1.25; padding-right: 18px; word-break: break-word; display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .keymeta { display: flex; align-items: baseline; justify-content: space-between; width: 100%; gap: 8px; }
-.keyplu { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Barcodes get lifted one step off --text-muted (testers actively cross-reference
+   them) while staying clearly quieter than the item name. */
+.keyplu { font-family: var(--font-mono); font-size: 11px; color: color-mix(in srgb, var(--text-muted) 60%, var(--text)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .keyprice { font-family: var(--font-mono); font-size: 13px; color: var(--text); flex-shrink: 0; }
 .key.green { background: color-mix(in srgb, var(--success) 20%, var(--card-bg)); border-color: color-mix(in srgb, var(--success) 45%, var(--border)); }
 .key.grey { background: var(--card-bg); color: var(--text-muted); }
@@ -236,7 +241,9 @@ h3 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing
 .qkempty { grid-column: 1 / -1; font-size: 11px; color: var(--text-muted); padding: 8px 2px; }
 .qkpager { flex: 0 0 auto; display: flex; align-items: center; justify-content: center; gap: 14px; font-size: 13px; color: var(--text-muted); }
 .qkpager button { background: var(--control-bg); color: var(--text); border: 1px solid var(--border); border-radius: var(--r-ctrl); padding: 5px 14px; font-size: 15px; line-height: 1; cursor: pointer; }
-.qkpager button:hover:not(:disabled) { background: var(--control-hover); }
+/* Hover tints the arrow border + glyph toward --accent (background stays neutral)
+   so pagination reads as part of the amber-accented UI, not a detached gray island. */
+.qkpager button:hover:not(:disabled) { background: var(--control-hover); border-color: var(--accent); color: var(--accent); }
 .qkpager button:disabled { opacity: .4; cursor: not-allowed; }
 
 /* Transaction hero ------------------------------------------------------- */
@@ -273,8 +280,10 @@ h3 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing
 .tender button { padding: 12px 10px; font-size: 14px; border-radius: var(--r-ctrl); border: 1px solid transparent; cursor: pointer; font-weight: 600; }
 .tender button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
 .tender button.primary:hover:not(:disabled) { background: var(--accent-hover); }
-.tender button.secondary { background: transparent; color: var(--text); border: 1px solid var(--border); font-weight: 500; }
-.tender button.secondary:hover:not(:disabled) { border-color: var(--text-muted); }
+/* Next $ stays neutral/gray but carries a faint accent border (~35% opacity) so it
+   visually groups with the two solid-amber Cash buttons without shouting like them. */
+.tender button.secondary { background: transparent; color: var(--text); border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); font-weight: 500; }
+.tender button.secondary:hover:not(:disabled) { border-color: color-mix(in srgb, var(--accent) 60%, transparent); }
 .tender button:disabled { opacity: .4; cursor: not-allowed; }
 
 .voidrow { flex: 0 0 auto; display: flex; justify-content: flex-end; margin-top: 16px; }
@@ -336,8 +345,12 @@ h3 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing
 /* Ads (Triggers & Completers) -------------------------------------------- */
 .tc { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; overflow: hidden; }
 .tcctl { display: flex; align-items: center; gap: 8px; }
-.tcctl button { background: var(--accent); color: var(--accent-text); border: 0; border-radius: var(--r-ctrl); padding: 7px 12px; font-size: 12px; font-weight: 600; cursor: pointer; }
-.tcctl button:hover:not(:disabled) { background: var(--accent-hover); }
+/* Load ads is a setup/secondary action — OUTLINED accent, matching Connect, so
+   neither competes with the solid-amber Cash tender buttons. A leading refresh
+   icon (currentColor = --accent) reinforces its clickability without a fill. */
+.tcctl button { display: inline-flex; align-items: center; gap: 5px; background: transparent; color: var(--accent); border: 1px solid var(--accent); border-radius: var(--r-ctrl); padding: 7px 12px; font-size: 12px; font-weight: 600; cursor: pointer; }
+.tcctl button:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 14%, var(--card-bg)); }
+.tcctlicon { width: 14px; height: 14px; flex: 0 0 auto; }
 .tcctl button:disabled { opacity: .4; cursor: not-allowed; }
 .tcerr { color: var(--danger); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%; }
 .tclegend { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; font-size: 10px; color: var(--text-muted); }
@@ -353,8 +366,11 @@ h3 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing
 .tccard { display: flex; flex-direction: column; gap: 4px; background: var(--control-bg); border: 1px solid var(--border); border-radius: var(--r-card); padding: 8px; overflow: hidden; }
 .tccard.interactive { border-left: 3px solid var(--accent); }
 .tccardhead { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.tccardname { flex: 1; min-width: 0; font-size: 12px; color: var(--text); line-height: 1.2; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; word-break: break-word; }
-.tccardtype { font-size: 10px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Name and subtitle need a clear weight+size gap so the list scans fast: the name
+   is the bold 13px anchor (2-line clamp + a native title tooltip carry the full
+   text), the subtitle stays a light, muted 10px caption. */
+.tccardname { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.2; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; word-break: break-word; }
+.tccardtype { font-size: 10px; font-weight: 400; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tccardbtns { display: flex; gap: 4px; margin-top: auto; }
 .tccardbtns .tcbtn { flex: 1; padding: 6px 4px; font-size: 11px; }
 .tcsilent { flex: 0 0 auto; background: var(--control-bg); color: var(--text); border: 1px solid var(--border); border-radius: var(--r-ctrl); padding: 2px 7px; font-size: 10px; line-height: 1.2; cursor: pointer; }

@@ -3,6 +3,7 @@ import { isInteractiveTemplate, type AdItem } from '../../../core/adTriggers';
 import { scenarioForAd, type ScenarioParams } from '../../../core/scenarios';
 import type { useEmulator } from '../useEmulator';
 import type { useScenarioRunner } from '../useScenarioRunner';
+import { IconRefresh } from './icons';
 
 /**
  * Triggers & Completers — lists the live ads (from the backend manifest), each
@@ -94,6 +95,7 @@ export function TriggersCompleters({
     <div className="tc">
       <div className="tcctl">
         <button onClick={() => void e.loadAds()} disabled={e.adsStatus.loading}>
+          <IconRefresh className="tcctlicon" />
           {e.adsStatus.loading ? 'Loading…' : 'Load ads'}
         </button>
         {e.adsStatus.error ? (
