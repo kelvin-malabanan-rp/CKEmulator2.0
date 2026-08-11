@@ -71,6 +71,8 @@ export function useEmulator(): {
   status: Status;
   /** True once Connect has been pressed this session — lets dots show idle (never tried) vs error (tried, down). */
   attempted: boolean;
+  /** LOA mode: whether the embedded player is mounted (Connect) or not (Disconnect). */
+  loaConnected: boolean;
   /** Text of the most recent error-category log line, for the status-dot tooltip. */
   lastError: string | null;
   config: PosConfig;
@@ -132,6 +134,10 @@ export function useEmulator(): {
   // Whether Connect has been pressed this session. Lets the status dots show a
   // neutral idle (never attempted) instead of red (attempted, handshake failed).
   const [attempted, setAttempted] = useState(false);
+  // LOA mode: whether the embedded player is "connected" (iframe mounted). Connect
+  // mounts it (fresh boot — retries the player's own network fetch); Disconnect
+  // unmounts it. Lets the user re-boot a stuck player without a full app reload.
+  const [loaConnected, setLoaConnected] = useState(false);
   // Increments on each completer inject from the player (CKP2 completing/adding).
   const [injectSeq, setInjectSeq] = useState(0);
   const [playerConfig, setPlayerConfigState] = useState<PlayerConfig>(() => {
@@ -189,8 +195,30 @@ export function useEmulator(): {
     [pricebookEntries],
   );
 
-  // Quick keys loaded from the bundled .qk files (legacy usualsuspects format).
-  const [quickKeyFiles, setQuickKeyFiles] = useState<QuickKeyFile[]>([]);
+  // Quick keys loaded from the bundled .qk files (legacy usualsuspects format) —
+  // now only a fallback used before a pricebook is available.
+  const [qkFiles, setQkFiles] = useState<QuickKeyFile[]>([]);
+
+  // The item grid IS the pricebook when one is loaded (bundled sample, or a real
+  // <playerCode>-<timestamp>.xml when pricebookDir points at one): every sellable
+  // entry becomes a tappable key, searched/paged by the same grid. Falls back to
+  // the .qk files so the grid is never empty before the pricebook resolves.
+  const pricebookFile = useMemo<QuickKeyFile | null>(() => {
+    if (pricebookEntries.length === 0) return null;
+    const entries: QuickKeyEntry[] = [];
+    for (const pe of pricebookEntries) {
+      const upc = pe.barcodes[0] || pe.plu;
+      if (upc && pe.description && pe.priceCents > 0) {
+        entries.push({ upc, sendScan: true, description: pe.description, quantity: 1, priceCents: pe.priceCents, io: [] });
+      }
+    }
+    return entries.length > 0 ? { file: 'Pricebook', entries } : null;
+  }, [pricebookEntries]);
+
+  const quickKeyFiles = useMemo<QuickKeyFile[]>(
+    () => (pricebookFile ? [pricebookFile] : qkFiles),
+    [pricebookFile, qkFiles],
+  );
 
   // Ads. The manifest (id + name) loads fast; each ad's triggers/completers are
   // fetched lazily on demand and cached in adDetails (keyed by ad id).
@@ -219,11 +247,11 @@ export function useEmulator(): {
     logSys('Loading quick keys from bundled defaults…');
     const res = await window.emulator.loadQuickKeys({});
     if (res.ok) {
-      setQuickKeyFiles(res.files);
+      setQkFiles(res.files);
       const total = res.files.reduce((n, f) => n + f.entries.length, 0);
       logSys(`Quick keys loaded from ${res.dir}: ${res.files.length} file(s), ${total} keys`);
     } else {
-      setQuickKeyFiles([]);
+      setQkFiles([]);
       logSys(`Quick keys error: ${res.error}`);
     }
   }, [logSys]);
@@ -427,7 +455,8 @@ export function useEmulator(): {
     // Skip the hardware connect so PosTransport never dials the (0) ports.
     if (isLoaRegisterType(config.registerType)) {
       setAttempted(true);
-      logSys('LOA mode — player embedded via iframe; driving over postMessage (no TCP connect).');
+      setLoaConnected(true);
+      logSys('LOA — loading the embedded player (postMessage). Reconnect re-boots it.');
       return;
     }
     const scannerNote = config.scannerPort !== undefined ? `, scanner ${config.scannerPort}` : '';
@@ -438,11 +467,18 @@ export function useEmulator(): {
   }, [config, logSys]);
 
   const disconnect = useCallback(async () => {
+    // LOA: unmount the embedded player (no TCP transport to close).
+    if (isLoaRegisterType(config.registerType)) {
+      setLoaConnected(false);
+      setAttempted(false);
+      logSys('LOA — unloaded the embedded player.');
+      return;
+    }
     logSys('Disconnecting…');
     setAttempted(false);
     const s = await window.emulator.disconnect();
     setStatus(s);
-  }, [logSys]);
+  }, [config, logSys]);
 
   // Most recent error-category line, surfaced in the status-dot tooltip. Log is
   // newest-first, so the first error match is the latest one.
@@ -520,6 +556,7 @@ export function useEmulator(): {
       injectSeq,
       status,
       attempted,
+      loaConnected,
       lastError,
       config,
       setConfig,
@@ -582,6 +619,7 @@ export function useEmulator(): {
       injectSeq,
       status,
       attempted,
+      loaConnected,
       lastError,
       config,
       playerConfig,

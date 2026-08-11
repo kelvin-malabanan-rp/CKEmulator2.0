@@ -11,15 +11,20 @@ import { loaTransport } from '../loaTransport';
  * The `playerKey` is passed in the URL hash (`#playerKey=…`) — the player reads
  * it from `window.location.hash` to boot as that registered player (resolving
  * its tenant, settings and Mashgin station). Without it the player falls back to
- * a default config and never consumes the order documents we send. The iframe
- * stays mounted for the whole LOA session so the player boots once (~30s: auth +
- * content/pricebook sync) rather than on every re-render.
+ * a default config and never consumes the order documents we send.
+ *
+ * The iframe is mounted only while `connected` (Connect) so Disconnect→Connect
+ * fully tears it down and re-creates it — a clean re-boot that retries the
+ * player's own network fetch, recovering from a "Can't fetch from network" state
+ * without reloading the whole app.
  */
 export function LoaFrame({
   playerKey,
+  connected,
   baseUrl = LOA_PLAYER_ENTRY_URL,
 }: {
   playerKey?: string;
+  connected: boolean;
   baseUrl?: string;
 }): JSX.Element {
   const ref = useRef<HTMLIFrameElement>(null);
@@ -27,9 +32,13 @@ export function LoaFrame({
   const entryUrl = loaEntryUrl(key, baseUrl);
 
   useEffect(() => {
+    if (!connected) {
+      loaTransport.setFrame(null, entryUrl);
+      return;
+    }
     loaTransport.setFrame(ref.current, entryUrl);
     return () => loaTransport.setFrame(null, entryUrl);
-  }, [entryUrl]);
+  }, [entryUrl, connected]);
 
   if (!key) {
     return (
@@ -38,6 +47,17 @@ export function LoaFrame({
           <span className="loaframetitle">loa-player</span>
         </div>
         <div className="loaframeempty">Enter a player key in Config to boot the embedded player.</div>
+      </div>
+    );
+  }
+
+  if (!connected) {
+    return (
+      <div className="loaframe">
+        <div className="loaframehead">
+          <span className="loaframetitle">loa-player</span>
+        </div>
+        <div className="loaframeempty">Not connected — click Connect to load the player.</div>
       </div>
     );
   }

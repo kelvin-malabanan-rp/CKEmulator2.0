@@ -39,11 +39,12 @@ export function ConnectionStatus({ e }: { e: ReturnType<typeof useEmulator> }): 
 
   // LOA drives the player over cross-origin postMessage to an embedded iframe —
   // there are no VJ/Pole/Scanner sockets, so show a single postMessage endpoint
-  // instead of the (always-red) hardware channels. The bridge is "connected"
-  // once the mode is active (the iframe is mounted and we can post to it).
+  // instead of the hardware channels. It's green when the player is mounted
+  // (Connect) and red when not (Disconnect / before connecting), so the Connect
+  // button is the way to (re-)boot the embedded player.
   const isLoa = isLoaRegisterType(e.config.registerType);
   const endpoints: Endpoint[] = isLoa
-    ? [{ label: 'postMessage', state: 'connected', target: new URL(LOA_PLAYER_ENTRY_URL).host }]
+    ? [{ label: 'postMessage', state: e.loaConnected ? 'connected' : 'error', target: new URL(LOA_PLAYER_ENTRY_URL).host }]
     : [
         { label: 'VJ', state: dotState(e.status.vj, e.attempted), target: `${e.config.host}:${e.config.vjPort}` },
         { label: 'Pole', state: dotState(e.status.pole, e.attempted), target: `${e.config.host}:${e.config.polePort}` },

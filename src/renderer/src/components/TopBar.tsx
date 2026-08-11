@@ -1,4 +1,4 @@
-import { baseRegisterType } from '../../../core/posTypes';
+import { baseRegisterType, isLoaRegisterType } from '../../../core/posTypes';
 import type { Theme } from '../uiSettings';
 import type { useEmulator } from '../useEmulator';
 import { ConnectionStatus } from './ConnectionStatus';
@@ -24,6 +24,7 @@ export function TopBar({
   const locale = e.snapshot.locale;
   const base = baseRegisterType(e.config.registerType);
   const bilingual = base !== 'radiant6-us' && base !== 'verifone-topaz';
+  const isLoa = isLoaRegisterType(e.config.registerType);
 
   // Store/tenant identity: the registered player code + tenant when known,
   // else fall back to the host so the bar always shows what it's pointed at.
@@ -49,11 +50,19 @@ export function TopBar({
         )}
         <ThemeSwitcher theme={theme} onChange={setTheme} />
         {e.attempted ? (
-          <button className="connbtn" onClick={() => void e.disconnect()} title="Close the hardware connection">
+          <button
+            className="connbtn"
+            onClick={() => void e.disconnect()}
+            title={isLoa ? 'Unload the embedded player' : 'Close the hardware connection'}
+          >
             Disconnect
           </button>
         ) : (
-          <button className="connbtn primary" onClick={() => void e.connect()} title="Open the TCP hardware connection to the player">
+          <button
+            className="connbtn primary"
+            onClick={() => void e.connect()}
+            title={isLoa ? 'Load / re-boot the embedded player (recovers a stuck player)' : 'Open the TCP hardware connection to the player'}
+          >
             <IconPlug className="connbtnicon" />
             Connect
           </button>

@@ -164,32 +164,28 @@ function App(): JSX.Element {
     <div className="app">
       <TopBar e={e} theme={theme} setTheme={setTheme} />
 
-      {isLoa ? (
-        // LOA: left column = controls (quick keys / transaction / ads),
-        // right column = the embedded player over the wire log + config.
-        <div className="loagrid">
-          <div className="loacol loacol-controls">
-            {quickKeysQuad}
-            {adsQuad}
-          </div>
-          <div className="loacol loacol-player">
-            <section className="quad quad-loa">
-              <LoaFrame playerKey={e.globalInit?.playerKey || e.playerConfig.playerKey} />
-            </section>
-            {transactionQuad}
-            {infoQuad}
-          </div>
-        </div>
-      ) : (
-        // Fixed 2×2 grid: Quick Keys / Transaction on top, Ads / Info below.
-        // Each quadrant is a fixed box that scrolls its own overflow.
-        <div className="grid2x2">
+      {/* One consistent 2-column layout for every register type: left column is
+          Quick Keys over Ads; right column is Transaction over the info/config
+          panel. LOA mode is identical, just with the embedded player banner on
+          top of the right column (loagrid--loa adds that row). */}
+      <div className={`loagrid${isLoa ? ' loagrid--loa' : ''}`}>
+        <div className="loacol loacol-controls">
           {quickKeysQuad}
-          {transactionQuad}
           {adsQuad}
+        </div>
+        <div className="loacol loacol-player">
+          {isLoa && (
+            <section className="quad quad-loa">
+              <LoaFrame
+                playerKey={e.globalInit?.playerKey || e.playerConfig.playerKey}
+                connected={e.loaConnected}
+              />
+            </section>
+          )}
+          {transactionQuad}
           {infoQuad}
         </div>
-      )}
+      </div>
     </div>
   );
 }
