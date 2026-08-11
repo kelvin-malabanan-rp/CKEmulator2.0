@@ -39,6 +39,8 @@ export interface PricebookLoadResult {
   entries: PricebookEntry[];
   path: string;
   error?: string;
+  /** True when served from a previously-downloaded pricebook (userData cache). */
+  fromDownloadCache?: boolean;
 }
 
 function firstTag(xml: string, tag: string): string | null {

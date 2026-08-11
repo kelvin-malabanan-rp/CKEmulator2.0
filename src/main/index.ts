@@ -8,7 +8,7 @@ import { PosTransport } from './PosTransport';
 import type { Channel, Status } from './PosTransport';
 import type { PosConfig } from '../core/posTypes';
 import { gunzipSync, inflateSync } from 'zlib';
-import { parsePricebook, parsePricebookXml, resolvePricebookFilename, resolvePricebookDir } from '../core/pricebook';
+import { parsePricebookXml, resolvePricebookFilename, resolvePricebookDir } from '../core/pricebook';
 import type { PricebookLoadResult } from '../core/pricebook';
 import { parseQuickKeys, orderQuickKeyFiles, resolveQuickKeyDir } from '../core/quickkeys';
 import type { QuickKeyFile, QuickKeyLoadResult } from '../core/quickkeys';
@@ -132,8 +132,11 @@ function registerEmulatorIpc(getWindow: () => BrowserWindow | null): void {
     );
   });
 
-  // Load the OCT2000 pricebook that corresponds to the player code in use:
-  // Circle K names exports `<siteCode>-<timestamp>.xml`, so we pick the match.
+  // Load the pricebook for the player code in use. Precedence: an explicit dir
+  // wins; otherwise a previously-downloaded pricebook cached under userData
+  // (pricebook-<playerCode>.xml) is preferred over the bundled sample, so a
+  // downloaded catalog survives a restart. Dialect (PDI/NAXML or OCT2000) is
+  // auto-detected. Circle K names dir exports `<siteCode>-<timestamp>.xml`.
   ipcMain.handle(
     'pricebook:load',
     async (_evt, req: { dir?: string; playerCode: string }): Promise<PricebookLoadResult> => {
@@ -141,6 +144,24 @@ function registerEmulatorIpc(getWindow: () => BrowserWindow | null): void {
       // No external dir → use the bundled sample, picking the first .xml as a
       // last resort since its name can't match an arbitrary player code.
       const usingBundled = (req.dir ?? '').trim() === '';
+
+      // Prefer the player's downloaded pricebook cache when no explicit dir is set.
+      if (usingBundled && playerCode) {
+        const cachePath = join(app.getPath('userData'), `pricebook-${playerCode}.xml`);
+        if (existsSync(cachePath)) {
+          try {
+            const xml = await readFile(cachePath, 'utf-8');
+            const entries = parsePricebookXml(xml);
+            if (entries.length > 0) {
+              console.log(`[Pricebook] Loaded ${entries.length} items from download cache ${cachePath}`);
+              return { ok: true, count: entries.length, entries, path: cachePath, fromDownloadCache: true };
+            }
+          } catch (cacheErr) {
+            console.warn('[Pricebook] Download cache unreadable, falling back:', cacheErr);
+          }
+        }
+      }
+
       const dir = resolvePricebookDir(req.dir, bundledPricebookDir());
       console.log(`[Pricebook] Loading for player code "${playerCode}" from ${dir}${usingBundled ? ' (bundled)' : ''}`);
       try {
@@ -158,7 +179,7 @@ function registerEmulatorIpc(getWindow: () => BrowserWindow | null): void {
         }
         const full = join(dir, filename);
         const xml = await readFile(full, 'utf-8');
-        const entries = parsePricebook(xml);
+        const entries = parsePricebookXml(xml);
         console.log(`[Pricebook]   parsed ${entries.length} items from ${filename}`);
         return { ok: true, count: entries.length, entries, path: full };
       } catch (err) {

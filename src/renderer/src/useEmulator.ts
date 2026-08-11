@@ -505,9 +505,14 @@ export function useEmulator(): {
     const result = await window.emulator.loadPricebook({ dir: pricebookDir, playerCode: playerConfig.playerCode });
     setPricebookStatus(result);
     setPricebookEntries(result.ok ? result.entries : []);
+    // A cached download restored on startup counts as "downloaded" for this player
+    // (keeps the once-guard + the Config button's loaded state in sync).
+    if (result.ok && result.fromDownloadCache) {
+      setPricebookDownloadedCode(playerConfig.playerCode);
+    }
     logSys(
       result.ok
-        ? `Pricebook loaded: ${result.count} items (${result.path.split('/').pop()})`
+        ? `Pricebook loaded: ${result.count} items${result.fromDownloadCache ? ' (downloaded)' : ` (${result.path.split('/').pop()})`}`
         : `Pricebook error: ${result.error}`,
     );
   }, [pricebookDir, playerConfig.playerCode, logSys]);
@@ -561,14 +566,18 @@ export function useEmulator(): {
     }
   }, [globalInit, playerConfig.playerKey, pricebookDownloadedCode, logSys]);
 
-  // Auto-load the pricebook once on mount so item descriptions/prices and
-  // quick-key colors resolve out-of-the-box from the bundled sample.
-  const pricebookLoadedRef = useRef(false);
+  // Load the pricebook on mount and whenever the player code or pricebook dir
+  // changes — so once hydration resolves the player code, a previously-downloaded
+  // pricebook (userData cache) is restored instead of the bundled sample. Keyed
+  // by code|dir so it doesn't reload for anything else (e.g. a fresh download,
+  // which changes neither, is preserved).
+  const pricebookLoadKeyRef = useRef<string | null>(null);
   useEffect(() => {
-    if (pricebookLoadedRef.current) return;
-    pricebookLoadedRef.current = true;
+    const key = `${playerConfig.playerCode}|${pricebookDir}`;
+    if (pricebookLoadKeyRef.current === key) return;
+    pricebookLoadKeyRef.current = key;
     void loadPricebook();
-  }, [loadPricebook]);
+  }, [playerConfig.playerCode, pricebookDir, loadPricebook]);
 
   // On startup, rehydrate from the persisted player.key file (if a prior
   // registration saved one) so the generated config + endpoints survive a
