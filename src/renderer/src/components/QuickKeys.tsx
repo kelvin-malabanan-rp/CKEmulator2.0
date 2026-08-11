@@ -38,18 +38,21 @@ export function QuickKeys({
     return () => clearTimeout(id);
   }, [rawQuery]);
 
-  // Pinned keys float to the top; a live search flattens across all pages.
+  // Pinned keys float to the top. Search filters the same list; both browse and
+  // search are then paginated identically (3×3), so only a page of cards ever
+  // renders — a broad query over a ~14k-item pricebook no longer hangs.
   const searching = query.trim() !== '';
   const sorted = useMemo(() => sortPinned(entries, pinnedSet), [entries, pinnedSet]);
   const results = useMemo(
     () => (searching ? sortPinned(filterQuickKeys(entries, query), pinnedSet) : sorted),
     [searching, entries, query, pinnedSet, sorted],
   );
-  const pages = useMemo(() => paginate(sorted, QK_PER_PAGE), [sorted]);
+  const pages = useMemo(() => paginate(results, QK_PER_PAGE), [results]);
   const safePage = Math.min(page, pages.length - 1);
-  const current = searching ? results : pages[safePage] ?? [];
+  const current = pages[safePage] ?? [];
 
-  useEffect(() => setPage(0), [tab]);
+  // Reset to the first page when the query or the active file changes.
+  useEffect(() => setPage(0), [query, tab]);
 
   const renderKey = (entry: QuickKeyEntry, i: number): JSX.Element => {
     const pinned = pinnedSet.has(entry.upc);
@@ -109,7 +112,7 @@ export function QuickKeys({
         )}
       </div>
 
-      <div className={`qkgrid${searching ? ' searching' : ''}`}>
+      <div className="qkgrid">
         {current.length === 0 ? (
           <div className="qkempty">{searching ? 'No matching items' : 'No quick keys loaded'}</div>
         ) : (
@@ -117,7 +120,7 @@ export function QuickKeys({
         )}
       </div>
 
-      {!searching && pages.length > 1 && (
+      {pages.length > 1 && (
         <div className="qkpager">
           <button disabled={safePage === 0} onClick={() => setPage(safePage - 1)}>
             ‹

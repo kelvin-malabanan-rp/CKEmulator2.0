@@ -248,11 +248,9 @@ h3 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing
 .qkclear { background: var(--control-bg); border: 1px solid var(--border); color: var(--text-muted); border-radius: var(--r-ctrl); width: 30px; cursor: pointer; font-size: 14px; line-height: 1; }
 .qkclear:hover { color: var(--text); }
 .qkcount { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); white-space: nowrap; flex-shrink: 0; }
-/* Fixed 3×3 page filling the quad height; a live search flattens the pages and
-   scrolls the same grid instead of paging. Four rows (was five) so each key is
-   tall enough for the UPC label + item name + price. */
+/* Fixed 3×3 page filling the quad height; browse and search both paginate through
+   it (only a page of cards renders at a time). */
 .qkgrid { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: repeat(3, minmax(0, 1fr)); gap: 6px; }
-.qkgrid.searching { grid-template-rows: none; grid-auto-rows: 92px; overflow-y: auto; }
 .keyrow { position: relative; display: flex; min-height: 0; }
 /* Key content stacks top-down: tiny UPC label, item name (grows), price pinned to
    the bottom-right. flex-start + margin-top:auto on the price keeps the name at the
