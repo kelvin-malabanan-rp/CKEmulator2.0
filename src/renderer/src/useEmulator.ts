@@ -103,6 +103,8 @@ export function useEmulator(): {
   loadPricebook: () => Promise<void>;
   /** Download the live pricebook for the registered player into the item grid. */
   downloadPricebook: () => Promise<void>;
+  /** Player code whose downloaded pricebook is loaded (null = none / only the sample). */
+  pricebookDownloadedCode: string | null;
   addItem: (item: PricebookItem) => void;
   addCustom: (input: { code: string; description: string; priceCents: number; quantity: number }) => void;
   scan: (code: string, description?: string, priceCents?: number) => void;
@@ -181,6 +183,10 @@ export function useEmulator(): {
   );
   const [pricebookEntries, setPricebookEntries] = useState<PricebookEntry[]>([]);
   const [pricebookStatus, setPricebookStatus] = useState<PricebookLoadResult | null>(null);
+  // Player code whose *downloaded* pricebook is currently in the grid. Guards
+  // against re-downloading / re-parsing / re-building the grid for a pricebook we
+  // already have — reset on (re-)registration so a new key downloads fresh.
+  const [pricebookDownloadedCode, setPricebookDownloadedCode] = useState<string | null>(null);
 
   const setPricebookDir = useCallback((dir: string) => {
     setPricebookDirState(dir);
@@ -515,6 +521,12 @@ export function useEmulator(): {
       logSys('Register the player first, then download its pricebook.');
       return;
     }
+    // Download once per player: if we already have this player's pricebook in the
+    // grid, skip the fetch/parse/rebuild entirely (re-register to force a refresh).
+    if (pricebookDownloadedCode === globalInit.playerCode) {
+      logSys(`Pricebook already loaded for ${globalInit.playerCode} — skipping re-download.`);
+      return;
+    }
     const pricebookUrl = resolvePricebookUrl(globalInit.endpoints, globalInit.tenant);
     if (!pricebookUrl) {
       logSys('No pricebook URL available for this player (missing pricebook.url / init.url).');
@@ -542,11 +554,12 @@ export function useEmulator(): {
     setPricebookStatus(result);
     if (result.ok) {
       setPricebookEntries(result.entries);
+      setPricebookDownloadedCode(globalInit.playerCode);
       logSys(`Pricebook downloaded: ${result.count} items`);
     } else {
       logSys(`Pricebook download failed: ${result.error}`);
     }
-  }, [globalInit, playerConfig.playerKey, logSys]);
+  }, [globalInit, playerConfig.playerKey, pricebookDownloadedCode, logSys]);
 
   // Auto-load the pricebook once on mount so item descriptions/prices and
   // quick-key colors resolve out-of-the-box from the bundled sample.
@@ -583,6 +596,8 @@ export function useEmulator(): {
     const res = await window.emulator.registerPlayer({ playerKey: playerConfig.playerKey });
     if (res.ok && res.config) {
       setGlobalInit(res.config);
+      // Re-registration allows a fresh pricebook download (clears the once-guard).
+      setPricebookDownloadedCode(null);
       // Adopt the discovered player code so the rest of the app (pricebook,
       // tenant) lines up with the registered player.
       setPlayerConfig({ ...playerConfig, playerCode: res.config.playerCode });
@@ -637,6 +652,7 @@ export function useEmulator(): {
       pricebookStatus,
       loadPricebook,
       downloadPricebook,
+      pricebookDownloadedCode,
       addItem: (item: PricebookItem) => dispatch(session.addItem(item)),
       addCustom: (input: { code: string; description: string; priceCents: number; quantity: number }) =>
         dispatch(session.addItem(input)),
@@ -689,6 +705,7 @@ export function useEmulator(): {
       pricebookStatus,
       loadPricebook,
       downloadPricebook,
+      pricebookDownloadedCode,
       pricebookIndex,
       registerPlayer,
       globalInit,

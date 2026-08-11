@@ -35,6 +35,9 @@ export function ConfigTab({ e }: { e: ReturnType<typeof useEmulator> }): JSX.Ele
   };
 
   const gi = e.globalInit;
+  // This player's downloaded pricebook is already in the grid — the download
+  // button becomes a "loaded" no-op (re-register to refresh).
+  const pricebookLoaded = !!gi && e.pricebookDownloadedCode === gi.playerCode;
 
   return (
     <div className="configtab">
@@ -96,15 +99,17 @@ export function ConfigTab({ e }: { e: ReturnType<typeof useEmulator> }): JSX.Ele
 
         <button
           className="cfgregister"
-          disabled={!e.globalInit}
+          disabled={!e.globalInit || pricebookLoaded}
           onClick={() => void e.downloadPricebook()}
           title={
-            e.globalInit
-              ? 'Download this player’s live pricebook and load it into the item grid'
-              : 'Register the player first'
+            !e.globalInit
+              ? 'Register the player first'
+              : pricebookLoaded
+                ? 'This player’s pricebook is already loaded — re-register to refresh'
+                : 'Download this player’s live pricebook and load it into the item grid'
           }
         >
-          Download pricebook
+          {pricebookLoaded ? '✓ Pricebook loaded' : 'Download pricebook'}
         </button>
       </div>
 
