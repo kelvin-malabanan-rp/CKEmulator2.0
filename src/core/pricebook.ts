@@ -39,10 +39,24 @@ export interface PricebookLoadResult {
   entries: PricebookEntry[];
   path: string;
   error?: string;
+  /** True when served from a previously-downloaded pricebook (userData cache). */
+  fromDownloadCache?: boolean;
 }
 
+// Per-tag regexes are compiled once and reused. firstTag/firstTagLoose run ~3-4x
+// per item, so on a ~14k-item pricebook a fresh `new RegExp` per call would be
+// ~50k compilations. The regexes carry no `g`/`y` flag, so `.exec` ignores
+// lastIndex and reuse across inputs is safe.
+const strictTagRe = new Map<string, RegExp>();
+const looseTagRe = new Map<string, RegExp>();
+
 function firstTag(xml: string, tag: string): string | null {
-  const m = new RegExp(`<${tag}>(.*?)</${tag}>`, 's').exec(xml);
+  let re = strictTagRe.get(tag);
+  if (!re) {
+    re = new RegExp(`<${tag}>(.*?)</${tag}>`, 's');
+    strictTagRe.set(tag, re);
+  }
+  const m = re.exec(xml);
   return m ? m[1].trim() : null;
 }
 
@@ -74,6 +88,59 @@ export function parsePricebook(xml: string): PricebookEntry[] {
     }
   }
   return entries;
+}
+
+/** Like firstTag but tolerates attributes on the opening tag (`<Tag attr=…>`). */
+function firstTagLoose(xml: string, tag: string): string | null {
+  let re = looseTagRe.get(tag);
+  if (!re) {
+    re = new RegExp(`<${tag}\\b[^>]*>(.*?)</${tag}>`, 's');
+    looseTagRe.set(tag, re);
+  }
+  const m = re.exec(xml);
+  return m ? m[1].trim() : null;
+}
+
+/**
+ * Parse a PDI / NAXML pricebook (`<NAXML-MaintenanceRequest>` →
+ * `ItemMaintenance/ITTDetail`) into the same flat entries — the dialect US and CA
+ * tenants serve (VendorName=PDI). This is a LIGHT extraction: per item we take the
+ * POS code, description and regular sell price (dollars → cents); it deliberately
+ * skips the combo/list/promo machinery a full player pricebook build does. The POS
+ * code is the scannable code, so it doubles as the barcode.
+ *
+ * Field mapping mirrors loa-player's PricebookWorker: `ItemCode.POSCode`,
+ * `ITTData.Description`, `ITTData.RegularSellPrice`.
+ */
+export function parsePdiPricebook(xml: string): PricebookEntry[] {
+  const entries: PricebookEntry[] = [];
+  const re = /<ITTDetail\b[^>]*>(.*?)<\/ITTDetail>/gs;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(xml)) !== null) {
+    const body = m[1];
+    const posCode = firstTagLoose(body, 'POSCode') ?? '';
+    if (!posCode) continue;
+    const description =
+      firstTagLoose(body, 'Description') || firstTagLoose(body, 'ngrp_ShortDescription') || posCode;
+    const priceRaw = firstTagLoose(body, 'RegularSellPrice');
+    const priceCents =
+      priceRaw !== null && /^-?\d+(\.\d+)?$/.test(priceRaw) ? Math.round(parseFloat(priceRaw) * 100) : 0;
+    entries.push({ plu: posCode, description, priceCents, barcodes: [posCode] });
+  }
+  return entries;
+}
+
+/**
+ * Parse a pricebook XML of unknown dialect: PDI/NAXML (US/CA — the format a real
+ * `pricebook.url` serves) or the legacy OCT2000-IMPORT (`<DRY>`, our bundled
+ * sample). Dispatches on the root/element markers. JDE and Octane dialects are
+ * not handled yet — see the multi-tenant note; they'd slot in here.
+ */
+export function parsePricebookXml(xml: string): PricebookEntry[] {
+  if (/<NAXML-MaintenanceRequest\b/i.test(xml) || /<ITTDetail\b/i.test(xml)) {
+    return parsePdiPricebook(xml);
+  }
+  return parsePricebook(xml);
 }
 
 /**

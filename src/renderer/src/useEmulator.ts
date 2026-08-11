@@ -4,11 +4,14 @@ import {
   DEFAULT_POS_CONFIG,
   DEFAULT_PLAYER_CONFIG,
   normalizePlayerConfig,
+  isLoaRegisterType,
   type PosConfig,
   type PlayerConfig,
   type RegisterType,
   type Status,
 } from '../../core/posTypes';
+import type { InjectCommand } from '../../core/injectProtocol';
+import { loaTransport } from './loaTransport';
 import type { PosLocale } from '../../core/currency';
 import {
   buildPricebookIndex,
@@ -17,8 +20,9 @@ import {
   type PricebookEntry,
   type QuickKeyItem,
   type PricebookLoadResult,
+  type ResolvedItem,
 } from '../../core/pricebook';
-import type { GlobalInitConfig } from '../../core/globalInit';
+import { resolvePricebookUrl, type GlobalInitConfig } from '../../core/globalInit';
 import { quickKeyColor, type QuickKeyColor, type QuickKeyEntry, type QuickKeyFile } from '../../core/quickkeys';
 import {
   extractTriggersCompleters,
@@ -68,6 +72,8 @@ export function useEmulator(): {
   status: Status;
   /** True once Connect has been pressed this session — lets dots show idle (never tried) vs error (tried, down). */
   attempted: boolean;
+  /** LOA mode: whether the embedded player is mounted (Connect) or not (Disconnect). */
+  loaConnected: boolean;
   /** Text of the most recent error-category log line, for the status-dot tooltip. */
   lastError: string | null;
   config: PosConfig;
@@ -96,6 +102,10 @@ export function useEmulator(): {
   setPricebookDir: (dir: string) => void;
   pricebookStatus: PricebookLoadResult | null;
   loadPricebook: () => Promise<void>;
+  /** Download the live pricebook for the registered player into the item grid. */
+  downloadPricebook: () => Promise<void>;
+  /** Player code whose downloaded pricebook is loaded (null = none / only the sample). */
+  pricebookDownloadedCode: string | null;
   addItem: (item: PricebookItem) => void;
   addCustom: (input: { code: string; description: string; priceCents: number; quantity: number }) => void;
   scan: (code: string, description?: string, priceCents?: number) => void;
@@ -107,6 +117,8 @@ export function useEmulator(): {
   voidTicket: () => void;
   suspend: () => void;
   resume: () => void;
+  /** UPC/PLU → resolved pricebook item, for name lookups (e.g. ad trigger/completer items). */
+  pricebookIndex: Map<string, ResolvedItem>;
 } {
   const [config, setConfig] = useState<PosConfig>(DEFAULT_POS_CONFIG);
 
@@ -129,6 +141,10 @@ export function useEmulator(): {
   // Whether Connect has been pressed this session. Lets the status dots show a
   // neutral idle (never attempted) instead of red (attempted, handshake failed).
   const [attempted, setAttempted] = useState(false);
+  // LOA mode: whether the embedded player is "connected" (iframe mounted). Connect
+  // mounts it (fresh boot — retries the player's own network fetch); Disconnect
+  // unmounts it. Lets the user re-boot a stuck player without a full app reload.
+  const [loaConnected, setLoaConnected] = useState(false);
   // Increments on each completer inject from the player (CKP2 completing/adding).
   const [injectSeq, setInjectSeq] = useState(0);
   const [playerConfig, setPlayerConfigState] = useState<PlayerConfig>(() => {
@@ -170,6 +186,10 @@ export function useEmulator(): {
   );
   const [pricebookEntries, setPricebookEntries] = useState<PricebookEntry[]>([]);
   const [pricebookStatus, setPricebookStatus] = useState<PricebookLoadResult | null>(null);
+  // Player code whose *downloaded* pricebook is currently in the grid. Guards
+  // against re-downloading / re-parsing / re-building the grid for a pricebook we
+  // already have — reset on (re-)registration so a new key downloads fresh.
+  const [pricebookDownloadedCode, setPricebookDownloadedCode] = useState<string | null>(null);
 
   const setPricebookDir = useCallback((dir: string) => {
     setPricebookDirState(dir);
@@ -186,8 +206,30 @@ export function useEmulator(): {
     [pricebookEntries],
   );
 
-  // Quick keys loaded from the bundled .qk files (legacy usualsuspects format).
-  const [quickKeyFiles, setQuickKeyFiles] = useState<QuickKeyFile[]>([]);
+  // Quick keys loaded from the bundled .qk files (legacy usualsuspects format) —
+  // now only a fallback used before a pricebook is available.
+  const [qkFiles, setQkFiles] = useState<QuickKeyFile[]>([]);
+
+  // The item grid IS the pricebook when one is loaded (bundled sample, or a real
+  // <playerCode>-<timestamp>.xml when pricebookDir points at one): every sellable
+  // entry becomes a tappable key, searched/paged by the same grid. Falls back to
+  // the .qk files so the grid is never empty before the pricebook resolves.
+  const pricebookFile = useMemo<QuickKeyFile | null>(() => {
+    if (pricebookEntries.length === 0) return null;
+    const entries: QuickKeyEntry[] = [];
+    for (const pe of pricebookEntries) {
+      const upc = pe.barcodes[0] || pe.plu;
+      if (upc && pe.description && pe.priceCents > 0) {
+        entries.push({ upc, sendScan: true, description: pe.description, quantity: 1, priceCents: pe.priceCents, io: [] });
+      }
+    }
+    return entries.length > 0 ? { file: 'Pricebook', entries } : null;
+  }, [pricebookEntries]);
+
+  const quickKeyFiles = useMemo<QuickKeyFile[]>(
+    () => (pricebookFile ? [pricebookFile] : qkFiles),
+    [pricebookFile, qkFiles],
+  );
 
   // Ads. The manifest (id + name) loads fast; each ad's triggers/completers are
   // fetched lazily on demand and cached in adDetails (keyed by ad id).
@@ -216,11 +258,11 @@ export function useEmulator(): {
     logSys('Loading quick keys from bundled defaults…');
     const res = await window.emulator.loadQuickKeys({});
     if (res.ok) {
-      setQuickKeyFiles(res.files);
+      setQkFiles(res.files);
       const total = res.files.reduce((n, f) => n + f.entries.length, 0);
       logSys(`Quick keys loaded from ${res.dir}: ${res.files.length} file(s), ${total} keys`);
     } else {
-      setQuickKeyFiles([]);
+      setQkFiles([]);
       logSys(`Quick keys error: ${res.error}`);
     }
   }, [logSys]);
@@ -364,7 +406,10 @@ export function useEmulator(): {
     (messages: WireMessage[]) => {
       const entries: LogEntry[] = [];
       for (const m of messages) {
-        void window.emulator.send(m.channel, m.data);
+        // LOA docs go to the embedded player over postMessage (renderer);
+        // hardware channels go to the TCP transport in the main process.
+        if (m.channel === 'loa') loaTransport.send(m.data);
+        else void window.emulator.send(m.channel, m.data);
         const now = new Date();
         const text = m.data.replace(/\r\n$/, '');
         entries.push({
@@ -382,13 +427,14 @@ export function useEmulator(): {
     [session],
   );
 
-  // Ring up completer injects pushed by the player over the VJ reverse channel:
-  // resolve the UPC (pricebook → quick keys → fallback) and add it to the basket,
-  // which emits the normal 1011 + pole back so the player's basket reflects it.
-  // Each inject bumps injectSeq — the player completing/adding a completer is the
-  // signal to close the emulator's now-stale completer modal.
-  useEffect(() => {
-    return window.emulator.onInject((cmd) => {
+  // Ring up completer injects pushed by the player: resolve the UPC (pricebook →
+  // quick keys → fallback) and add it to the basket, which re-emits to the player
+  // (1011 + pole on TCP, or a fresh NGRP doc in LOA mode) so its basket reflects
+  // it. Each inject bumps injectSeq — the player acting on a completer is the
+  // signal to close the emulator's now-stale completer modal. Shared by both the
+  // TCP reverse channel (EventId 2001) and LOA's rp-inject-item.
+  const ringUpInject = useCallback(
+    (cmd: InjectCommand) => {
       const hit = pricebookIndex.get(cmd.barcode) ?? quickKeys.find((p) => p.code === cmd.barcode);
       const item = hit
         ? { code: hit.code, description: hit.description, priceCents: hit.priceCents, quantity: cmd.quantity }
@@ -396,10 +442,34 @@ export function useEmulator(): {
       logSys(`Completer inject: ${cmd.barcode} ×${cmd.quantity} → ${item.description}`);
       dispatch(session.addItem(item));
       setInjectSeq((n) => n + 1);
-    });
-  }, [pricebookIndex, quickKeys, session, dispatch, logSys]);
+    },
+    [pricebookIndex, quickKeys, session, dispatch, logSys],
+  );
+
+  useEffect(() => window.emulator.onInject(ringUpInject), [ringUpInject]);
+  useEffect(() => loaTransport.onInject(ringUpInject), [ringUpInject]);
+
+  // Surface the player's inbound LOA messages (rp-inject-item, rp-ad-shown,
+  // rp-session-mode, …) in the Wire Log. Outbound docs are already logged by
+  // dispatch as `loa` lines, so only mirror inbound here.
+  useEffect(
+    () =>
+      loaTransport.onLog((direction, name, detailJson) => {
+        if (direction !== 'in') return;
+        logSys(`← loa ${name}${detailJson ? ` ${detailJson.slice(0, 160)}` : ''}`);
+      }),
+    [logSys],
+  );
 
   const connect = useCallback(async () => {
+    // LOA mode has no TCP socket — the embedded iframe is the "connection".
+    // Skip the hardware connect so PosTransport never dials the (0) ports.
+    if (isLoaRegisterType(config.registerType)) {
+      setAttempted(true);
+      setLoaConnected(true);
+      logSys('LOA — loading the embedded player (postMessage). Reconnect re-boots it.');
+      return;
+    }
     const scannerNote = config.scannerPort !== undefined ? `, scanner ${config.scannerPort}` : '';
     logSys(`Connecting to ${config.host} (VJ ${config.vjPort}, pole ${config.polePort}${scannerNote})…`);
     setAttempted(true);
@@ -408,11 +478,18 @@ export function useEmulator(): {
   }, [config, logSys]);
 
   const disconnect = useCallback(async () => {
+    // LOA: unmount the embedded player (no TCP transport to close).
+    if (isLoaRegisterType(config.registerType)) {
+      setLoaConnected(false);
+      setAttempted(false);
+      logSys('LOA — unloaded the embedded player.');
+      return;
+    }
     logSys('Disconnecting…');
     setAttempted(false);
     const s = await window.emulator.disconnect();
     setStatus(s);
-  }, [logSys]);
+  }, [config, logSys]);
 
   // Most recent error-category line, surfaced in the status-dot tooltip. Log is
   // newest-first, so the first error match is the latest one.
@@ -431,21 +508,77 @@ export function useEmulator(): {
     const result = await window.emulator.loadPricebook({ dir: pricebookDir, playerCode: playerConfig.playerCode });
     setPricebookStatus(result);
     setPricebookEntries(result.ok ? result.entries : []);
+    // A cached download restored on startup counts as "downloaded" for this player
+    // (keeps the once-guard + the Config button's loaded state in sync).
+    if (result.ok && result.fromDownloadCache) {
+      setPricebookDownloadedCode(playerConfig.playerCode);
+    }
     logSys(
       result.ok
-        ? `Pricebook loaded: ${result.count} items (${result.path.split('/').pop()})`
+        ? `Pricebook loaded: ${result.count} items${result.fromDownloadCache ? ' (downloaded)' : ` (${result.path.split('/').pop()})`}`
         : `Pricebook error: ${result.error}`,
     );
   }, [pricebookDir, playerConfig.playerCode, logSys]);
 
-  // Auto-load the pricebook once on mount so item descriptions/prices and
-  // quick-key colors resolve out-of-the-box from the bundled sample.
-  const pricebookLoadedRef = useRef(false);
+  // Download the live pricebook for the registered player and feed it to the item
+  // grid. Resolves pricebook.url from the GlobalInit config (deriving it from the
+  // init origin when absent); the main process fetches + parses (PDI/NAXML or
+  // OCT2000). Requires a registered player (globalInit).
+  // An explicit click always (re-)downloads for the currently registered player.
+  // Redundant *automatic* loads are avoided elsewhere: startup/registration read
+  // the userData cache instead of the network (see loadPricebook), so this only
+  // hits the network on a deliberate download.
+  const downloadPricebook = useCallback(async () => {
+    if (!globalInit) {
+      logSys('Register the player first, then download its pricebook.');
+      return;
+    }
+    const pricebookUrl = resolvePricebookUrl(globalInit.endpoints, globalInit.tenant);
+    if (!pricebookUrl) {
+      logSys('No pricebook URL available for this player (missing pricebook.url / init.url).');
+      return;
+    }
+    logSys(`Downloading pricebook for ${globalInit.playerCode} (tenant ${globalInit.tenant})…`);
+    let result: PricebookLoadResult;
+    try {
+      result = await window.emulator.downloadPricebook({
+        pricebookUrl,
+        playerCode: globalInit.playerCode,
+        playerKey: globalInit.playerKey || playerConfig.playerKey,
+        locationCode: globalInit.locationCode,
+      });
+    } catch (err) {
+      // e.g. the main process predates this IPC handler — restart `npm run dev`.
+      result = {
+        ok: false,
+        count: 0,
+        entries: [],
+        path: pricebookUrl,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+    setPricebookStatus(result);
+    if (result.ok) {
+      setPricebookEntries(result.entries);
+      setPricebookDownloadedCode(globalInit.playerCode);
+      logSys(`Pricebook downloaded: ${result.count} items`);
+    } else {
+      logSys(`Pricebook download failed: ${result.error}`);
+    }
+  }, [globalInit, playerConfig.playerKey, logSys]);
+
+  // Load the pricebook on mount and whenever the player code or pricebook dir
+  // changes — so once hydration resolves the player code, a previously-downloaded
+  // pricebook (userData cache) is restored instead of the bundled sample. Keyed
+  // by code|dir so it doesn't reload for anything else (e.g. a fresh download,
+  // which changes neither, is preserved).
+  const pricebookLoadKeyRef = useRef<string | null>(null);
   useEffect(() => {
-    if (pricebookLoadedRef.current) return;
-    pricebookLoadedRef.current = true;
+    const key = `${playerConfig.playerCode}|${pricebookDir}`;
+    if (pricebookLoadKeyRef.current === key) return;
+    pricebookLoadKeyRef.current = key;
     void loadPricebook();
-  }, [loadPricebook]);
+  }, [playerConfig.playerCode, pricebookDir, loadPricebook]);
 
   // On startup, rehydrate from the persisted player.key file (if a prior
   // registration saved one) so the generated config + endpoints survive a
@@ -473,6 +606,8 @@ export function useEmulator(): {
     const res = await window.emulator.registerPlayer({ playerKey: playerConfig.playerKey });
     if (res.ok && res.config) {
       setGlobalInit(res.config);
+      // Re-registration allows a fresh pricebook download (clears the once-guard).
+      setPricebookDownloadedCode(null);
       // Adopt the discovered player code so the rest of the app (pricebook,
       // tenant) lines up with the registered player.
       setPlayerConfig({ ...playerConfig, playerCode: res.config.playerCode });
@@ -490,6 +625,7 @@ export function useEmulator(): {
       injectSeq,
       status,
       attempted,
+      loaConnected,
       lastError,
       config,
       setConfig,
@@ -525,6 +661,8 @@ export function useEmulator(): {
       setPricebookDir,
       pricebookStatus,
       loadPricebook,
+      downloadPricebook,
+      pricebookDownloadedCode,
       addItem: (item: PricebookItem) => dispatch(session.addItem(item)),
       addCustom: (input: { code: string; description: string; priceCents: number; quantity: number }) =>
         dispatch(session.addItem(input)),
@@ -546,12 +684,14 @@ export function useEmulator(): {
       },
       suspend: () => dispatch(session.suspend()),
       resume: () => dispatch(session.resume()),
+      pricebookIndex,
     }),
     [
       snapshot,
       injectSeq,
       status,
       attempted,
+      loaConnected,
       lastError,
       config,
       playerConfig,
@@ -575,6 +715,8 @@ export function useEmulator(): {
       setPricebookDir,
       pricebookStatus,
       loadPricebook,
+      downloadPricebook,
+      pricebookDownloadedCode,
       pricebookIndex,
       registerPlayer,
       globalInit,

@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { formatCurrency, type PosLocale } from '../../../core/currency';
-import { paginate } from '../../../core/quickkeys';
 import { usePersistedState } from '../usePersistedState';
 import { QK_PINS_KEY, DEFAULT_QK_PINS, parsePins, serializePins } from '../uiSettings';
 import { filterQuickKeys, sortPinned, togglePin } from '../quickKeyFilter';
 import type { QuickKeyEntry } from '../../../core/quickkeys';
 import type { useEmulator } from '../useEmulator';
 
-const QK_PER_PAGE = 15; // 3 columns × 5 rows
+const QK_PER_PAGE = 9; // 3 columns × 3 rows — mirrors the Ads grid below it
 
 /**
  * Top-left quadrant quick keys: search pinned at the top (filter / jump to an
@@ -38,33 +37,42 @@ export function QuickKeys({
     return () => clearTimeout(id);
   }, [rawQuery]);
 
-  // Pinned keys float to the top; a live search flattens across all pages.
+  // Pinned keys float to the top. Search filters the same list; both browse and
+  // search are then paginated identically (3×3), so only a page of cards ever
+  // renders — a broad query over a ~14k-item pricebook no longer hangs.
   const searching = query.trim() !== '';
   const sorted = useMemo(() => sortPinned(entries, pinnedSet), [entries, pinnedSet]);
   const results = useMemo(
     () => (searching ? sortPinned(filterQuickKeys(entries, query), pinnedSet) : sorted),
     [searching, entries, query, pinnedSet, sorted],
   );
-  const pages = useMemo(() => paginate(sorted, QK_PER_PAGE), [sorted]);
-  const safePage = Math.min(page, pages.length - 1);
-  const current = searching ? results : pages[safePage] ?? [];
+  // Slice only the visible page — never materialize all pages. A 14k-item
+  // pricebook would otherwise build ~1,555 arrays on every keystroke/pin toggle.
+  const pageCount = Math.max(1, Math.ceil(results.length / QK_PER_PAGE));
+  const safePage = Math.min(page, pageCount - 1);
+  const current = useMemo(
+    () => results.slice(safePage * QK_PER_PAGE, safePage * QK_PER_PAGE + QK_PER_PAGE),
+    [results, safePage],
+  );
 
-  useEffect(() => setPage(0), [tab]);
+  // Reset to the first page when the query or the active file changes.
+  useEffect(() => setPage(0), [query, tab]);
 
   const renderKey = (entry: QuickKeyEntry, i: number): JSX.Element => {
     const pinned = pinnedSet.has(entry.upc);
+    // Show the UPC as a small top-left label above the item name; skip it when
+    // the row has no name (description falls back to the UPC — no point twice).
+    const hasName = entry.description !== entry.upc;
     return (
       <div key={`${entry.upc}-${i}`} className="keyrow">
         <button
           className={`key ${e.quickKeyColorFor(entry.upc)}${pinned ? ' pinned' : ''}`}
-          title={entry.upc}
+          title={hasName ? `${entry.description} · ${entry.upc}` : entry.upc}
           onClick={() => e.fireQuickKey(entry)}
         >
+          {hasName && <span className="keyplu">{entry.upc}</span>}
           <span className="keyname">{entry.description}</span>
-          <span className="keymeta">
-            <span className="keyplu">{entry.upc}</span>
-            <span className="keyprice">{formatCurrency(entry.priceCents, locale)}</span>
-          </span>
+          <span className="keyprice">{formatCurrency(entry.priceCents, locale)}</span>
         </button>
         <button
           className={`pin${pinned ? ' on' : ''}`}
@@ -108,7 +116,7 @@ export function QuickKeys({
         )}
       </div>
 
-      <div className={`qkgrid${searching ? ' searching' : ''}`}>
+      <div className="qkgrid">
         {current.length === 0 ? (
           <div className="qkempty">{searching ? 'No matching items' : 'No quick keys loaded'}</div>
         ) : (
@@ -116,15 +124,15 @@ export function QuickKeys({
         )}
       </div>
 
-      {!searching && pages.length > 1 && (
+      {pageCount > 1 && (
         <div className="qkpager">
           <button disabled={safePage === 0} onClick={() => setPage(safePage - 1)}>
             ‹
           </button>
           <span>
-            {safePage + 1}/{pages.length}
+            {safePage + 1}/{pageCount}
           </span>
-          <button disabled={safePage >= pages.length - 1} onClick={() => setPage(safePage + 1)}>
+          <button disabled={safePage >= pageCount - 1} onClick={() => setPage(safePage + 1)}>
             ›
           </button>
         </div>

@@ -35,6 +35,9 @@ export function ConfigTab({ e }: { e: ReturnType<typeof useEmulator> }): JSX.Ele
   };
 
   const gi = e.globalInit;
+  // This player's downloaded pricebook is already in the grid — the download
+  // button becomes a "loaded" no-op (re-register to refresh).
+  const pricebookLoaded = !!gi && e.pricebookDownloadedCode === gi.playerCode;
 
   return (
     <div className="configtab">
@@ -60,8 +63,11 @@ export function ConfigTab({ e }: { e: ReturnType<typeof useEmulator> }): JSX.Ele
           >
             {REGISTER_TYPES.map((r) => (
               <option key={r.value} value={r.value}>
-                {r.label} (VJ {r.vjPort} / Pole {r.polePort}
-                {r.scannerPort !== undefined ? ` / Scanner ${r.scannerPort}` : ''})
+                {r.vjPort === 0
+                  ? `${r.label} (postMessage)`
+                  : `${r.label} (VJ ${r.vjPort} / Pole ${r.polePort}${
+                      r.scannerPort !== undefined ? ` / Scanner ${r.scannerPort}` : ''
+                    })`}
               </option>
             ))}
           </select>
@@ -90,9 +96,31 @@ export function ConfigTab({ e }: { e: ReturnType<typeof useEmulator> }): JSX.Ele
         <button className="cfgregister" onClick={() => void e.registerPlayer()} title="Resolve the datacenter, player code & backend from the player.key">
           Register
         </button>
+
+        <button
+          className="cfgregister"
+          disabled={!e.globalInit}
+          onClick={() => void e.downloadPricebook()}
+          title={
+            !e.globalInit
+              ? 'Register the player first'
+              : pricebookLoaded
+                ? 'Re-download this player’s live pricebook (fetches a fresh copy)'
+                : 'Download this player’s live pricebook and load it into the item grid'
+          }
+        >
+          {pricebookLoaded ? 'Re-download pricebook' : 'Download pricebook'}
+        </button>
       </div>
 
       {e.globalInitError && <div className="initerr">Register failed: {e.globalInitError}</div>}
+      {e.pricebookStatus && (
+        <div className={e.pricebookStatus.ok ? 'pbstatus' : 'initerr'}>
+          {e.pricebookStatus.ok
+            ? `Pricebook: ${e.pricebookStatus.count} items loaded`
+            : `Pricebook: ${e.pricebookStatus.error}`}
+        </div>
+      )}
 
       {gi && (
         <div className="cfgdump">

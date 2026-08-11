@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   parsePricebook,
+  parsePdiPricebook,
+  parsePricebookXml,
   buildPricebookIndex,
   loadPricebookIndex,
   resolvePricebookFilename,
@@ -8,6 +10,21 @@ import {
   resolveScan,
   pickQuickKeys,
 } from './pricebook';
+
+const PDI_XML = `<?xml version="1.0" encoding="utf-8"?>
+<NAXML-MaintenanceRequest version="3.6" xmlns="http://www.naxml.org/POSBO/Vocabulary/2003-10-16">
+  <TransmissionHeader><VendorName>PDI</VendorName></TransmissionHeader>
+  <ItemMaintenance>
+    <ITTDetail>
+      <ItemCode><POSCode>028200009654</POSCode><POSCodeModifier value="0" /></ItemCode>
+      <ITTData><Description>Marlboro 72 GLD BX KG</Description><RegularSellPrice value="1">5.99</RegularSellPrice></ITTData>
+    </ITTDetail>
+    <ITTDetail>
+      <ItemCode><POSCode>049000000443</POSCode><POSCodeModifier value="0" /></ItemCode>
+      <ITTData><Description>Coke 20oz</Description><RegularSellPrice>2.29</RegularSellPrice></ITTData>
+    </ITTDetail>
+  </ItemMaintenance>
+</NAXML-MaintenanceRequest>`;
 
 const XML = `<?xml version="1.0" encoding="UTF-8"?>
 <OCT2000-IMPORT siteno="31989">
@@ -153,5 +170,43 @@ describe('pickQuickKeys', () => {
 
   it('respects the limit', () => {
     expect(pickQuickKeys(parsePricebook(XML), 1)).toHaveLength(1);
+  });
+});
+
+describe('parsePdiPricebook', () => {
+  it('extracts POS code, description and dollar price (→ cents) per ITTDetail', () => {
+    expect(parsePdiPricebook(PDI_XML)).toEqual([
+      { plu: '028200009654', description: 'Marlboro 72 GLD BX KG', priceCents: 599, barcodes: ['028200009654'] },
+      { plu: '049000000443', description: 'Coke 20oz', priceCents: 229, barcodes: ['049000000443'] },
+    ]);
+  });
+
+  it('reads RegularSellPrice whether or not it carries attributes', () => {
+    const [withAttr, withoutAttr] = parsePdiPricebook(PDI_XML);
+    expect(withAttr.priceCents).toBe(599); // <RegularSellPrice value="1">5.99</…>
+    expect(withoutAttr.priceCents).toBe(229); // <RegularSellPrice>2.29</…>
+  });
+
+  it('falls back to the POS code when an item has no description', () => {
+    const xml = '<ITTDetail><ItemCode><POSCode>111</POSCode></ItemCode><ITTData><RegularSellPrice>1.00</RegularSellPrice></ITTData></ITTDetail>';
+    expect(parsePdiPricebook(xml)).toEqual([{ plu: '111', description: '111', priceCents: 100, barcodes: ['111'] }]);
+  });
+
+  it('skips ITTDetail entries with no POS code', () => {
+    const xml = '<ITTDetail><ITTData><Description>Orphan</Description></ITTData></ITTDetail>';
+    expect(parsePdiPricebook(xml)).toEqual([]);
+  });
+});
+
+describe('parsePricebookXml (dialect dispatch)', () => {
+  it('routes NAXML/PDI to the PDI parser', () => {
+    expect(parsePricebookXml(PDI_XML)).toHaveLength(2);
+    expect(parsePricebookXml(PDI_XML)[0].description).toBe('Marlboro 72 GLD BX KG');
+  });
+
+  it('routes OCT2000 (<DRY>) to the legacy parser', () => {
+    const oct = parsePricebookXml(XML);
+    expect(oct).toEqual(parsePricebook(XML));
+    expect(oct.length).toBeGreaterThan(0);
   });
 });

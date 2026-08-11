@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { dotState, type DotState } from '../connState';
 import { summarizeConnections, type ConnChannel } from '../connSummary';
+import { isLoaRegisterType, LOA_PLAYER_ENTRY_URL } from '../../../core/posTypes';
 import type { useEmulator } from '../useEmulator';
 
 /** Per-channel detail line shown in the popover. */
@@ -36,13 +37,21 @@ export function ConnectionStatus({ e }: { e: ReturnType<typeof useEmulator> }): 
     return () => document.removeEventListener('mousedown', onDown);
   }, [open]);
 
-  const endpoints: Endpoint[] = [
-    { label: 'VJ', state: dotState(e.status.vj, e.attempted), target: `${e.config.host}:${e.config.vjPort}` },
-    { label: 'Pole', state: dotState(e.status.pole, e.attempted), target: `${e.config.host}:${e.config.polePort}` },
-    ...(e.config.scannerPort !== undefined
-      ? [{ label: 'Scanner', state: dotState(e.status.scanner, e.attempted), target: `${e.config.host}:${e.config.scannerPort}` }]
-      : []),
-  ];
+  // LOA drives the player over cross-origin postMessage to an embedded iframe —
+  // there are no VJ/Pole/Scanner sockets, so show a single postMessage endpoint
+  // instead of the hardware channels. It's green when the player is mounted
+  // (Connect) and red when not (Disconnect / before connecting), so the Connect
+  // button is the way to (re-)boot the embedded player.
+  const isLoa = isLoaRegisterType(e.config.registerType);
+  const endpoints: Endpoint[] = isLoa
+    ? [{ label: 'postMessage', state: e.loaConnected ? 'connected' : 'error', target: new URL(LOA_PLAYER_ENTRY_URL).host }]
+    : [
+        { label: 'VJ', state: dotState(e.status.vj, e.attempted), target: `${e.config.host}:${e.config.vjPort}` },
+        { label: 'Pole', state: dotState(e.status.pole, e.attempted), target: `${e.config.host}:${e.config.polePort}` },
+        ...(e.config.scannerPort !== undefined
+          ? [{ label: 'Scanner', state: dotState(e.status.scanner, e.attempted), target: `${e.config.host}:${e.config.scannerPort}` }]
+          : []),
+      ];
   const summary = summarizeConnections(endpoints);
   const degraded = endpoints.filter((ep) => ep.state !== 'connected' && ep.state !== 'idle');
 

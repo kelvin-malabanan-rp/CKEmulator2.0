@@ -7,11 +7,13 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 import { PosTransport } from './PosTransport';
 import type { Channel, Status } from './PosTransport';
 import type { PosConfig } from '../core/posTypes';
-import { parsePricebook, resolvePricebookFilename, resolvePricebookDir } from '../core/pricebook';
+import { gunzipSync, inflateSync } from 'zlib';
+import { parsePricebookXml, resolvePricebookFilename, resolvePricebookDir } from '../core/pricebook';
 import type { PricebookLoadResult } from '../core/pricebook';
 import { parseQuickKeys, orderQuickKeyFiles, resolveQuickKeyDir } from '../core/quickkeys';
 import type { QuickKeyFile, QuickKeyLoadResult } from '../core/quickkeys';
 import { DATACENTERS, toGlobalInitConfig, configFromPlayerKeyFile, PLAYER_KEY_FILENAME, extractLocationCode } from '../core/globalInit';
+import { browserUserAgent } from '../core/userAgent';
 import type { GlobalInitResult } from '../core/globalInit';
 import type { AdsManifestResult, AdDetailResult, RawAdConfig } from '../core/adTriggers';
 
@@ -78,6 +80,14 @@ const bundledPricebookDir = (): string => bundledResourceDir('pricebook');
 
 let transport: PosTransport | null = null;
 
+/** Browser User-Agent for the pricebook fetch (the portal 403s the Electron UA). */
+const PRICEBOOK_DOWNLOAD_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+/** A real pricebook can be tens of MB, so allow a generous window before aborting. */
+const PRICEBOOK_DOWNLOAD_TIMEOUT_MS = 60000;
+/** Reject bodies whose declared Content-Length is absurd, before buffering them. */
+const PRICEBOOK_MAX_BYTES = 250 * 1024 * 1024;
+
 /** Absolute path of the persisted generated config (the legacy `player.key` file). */
 function playerKeyFilePath(): string {
   return join(app.getPath('userData'), PLAYER_KEY_FILENAME);
@@ -126,8 +136,11 @@ function registerEmulatorIpc(getWindow: () => BrowserWindow | null): void {
     );
   });
 
-  // Load the OCT2000 pricebook that corresponds to the player code in use:
-  // Circle K names exports `<siteCode>-<timestamp>.xml`, so we pick the match.
+  // Load the pricebook for the player code in use. Precedence: an explicit dir
+  // wins; otherwise a previously-downloaded pricebook cached under userData
+  // (pricebook-<playerCode>.xml) is preferred over the bundled sample, so a
+  // downloaded catalog survives a restart. Dialect (PDI/NAXML or OCT2000) is
+  // auto-detected. Circle K names dir exports `<siteCode>-<timestamp>.xml`.
   ipcMain.handle(
     'pricebook:load',
     async (_evt, req: { dir?: string; playerCode: string }): Promise<PricebookLoadResult> => {
@@ -135,6 +148,24 @@ function registerEmulatorIpc(getWindow: () => BrowserWindow | null): void {
       // No external dir → use the bundled sample, picking the first .xml as a
       // last resort since its name can't match an arbitrary player code.
       const usingBundled = (req.dir ?? '').trim() === '';
+
+      // Prefer the player's downloaded pricebook cache when no explicit dir is set.
+      if (usingBundled && playerCode) {
+        const cachePath = join(app.getPath('userData'), `pricebook-${playerCode}.xml`);
+        if (existsSync(cachePath)) {
+          try {
+            const xml = await readFile(cachePath, 'utf-8');
+            const entries = parsePricebookXml(xml);
+            if (entries.length > 0) {
+              console.log(`[Pricebook] Loaded ${entries.length} items from download cache ${cachePath}`);
+              return { ok: true, count: entries.length, entries, path: cachePath, fromDownloadCache: true };
+            }
+          } catch (cacheErr) {
+            console.warn('[Pricebook] Download cache unreadable, falling back:', cacheErr);
+          }
+        }
+      }
+
       const dir = resolvePricebookDir(req.dir, bundledPricebookDir());
       console.log(`[Pricebook] Loading for player code "${playerCode}" from ${dir}${usingBundled ? ' (bundled)' : ''}`);
       try {
@@ -152,7 +183,7 @@ function registerEmulatorIpc(getWindow: () => BrowserWindow | null): void {
         }
         const full = join(dir, filename);
         const xml = await readFile(full, 'utf-8');
-        const entries = parsePricebook(xml);
+        const entries = parsePricebookXml(xml);
         console.log(`[Pricebook]   parsed ${entries.length} items from ${filename}`);
         return { ok: true, count: entries.length, entries, path: full };
       } catch (err) {
@@ -163,6 +194,89 @@ function registerEmulatorIpc(getWindow: () => BrowserWindow | null): void {
           path: dir,
           error: err instanceof Error ? err.message : String(err),
         };
+      }
+    },
+  );
+
+  // Download the live pricebook for the registered playerKey and parse it. Mirrors
+  // the reference emulator / LiftProxy.fetchPricebook: query-param auth
+  // (playerCode/playerKey/locationCode), a browser User-Agent, and a gzip body
+  // unless the URL ends in .xml. The dialect (PDI/NAXML for US·CA, or OCT2000) is
+  // auto-detected by parsePricebookXml. The raw XML is cached under userData so it
+  // survives a restart. LOA embeds a real player that downloads its own pricebook;
+  // this is for the TCP register modes (and to seed the item grid for any tenant).
+  ipcMain.handle(
+    'pricebook:download',
+    async (
+      _evt,
+      req: { pricebookUrl: string; playerCode: string; playerKey: string; locationCode: string },
+    ): Promise<PricebookLoadResult> => {
+      const { pricebookUrl, playerCode, playerKey, locationCode } = req;
+      if (!pricebookUrl) {
+        return { ok: false, count: 0, entries: [], path: '', error: 'No pricebook URL — register the player first.' };
+      }
+      const url =
+        `${pricebookUrl}?playerCode=${encodeURIComponent(playerCode)}` +
+        `&playerKey=${encodeURIComponent(playerKey)}&locationCode=${encodeURIComponent(locationCode)}`;
+      console.log(`[Pricebook] Downloading for ${playerCode} (location=${locationCode}) ← ${pricebookUrl}`);
+      // Bound the request: a hung portal must not leave the UI stuck "Downloading…"
+      // forever, and an absurd body must not be buffered into memory unbounded.
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), PRICEBOOK_DOWNLOAD_TIMEOUT_MS);
+      try {
+        const res = await fetch(url, { headers: { 'User-Agent': PRICEBOOK_DOWNLOAD_UA }, signal: controller.signal });
+        console.log(`[Pricebook]   HTTP ${res.status}`);
+        if (!res.ok) {
+          return { ok: false, count: 0, entries: [], path: pricebookUrl, error: `HTTP ${res.status} from pricebook.url` };
+        }
+        const declared = Number(res.headers.get('content-length') ?? '');
+        if (Number.isFinite(declared) && declared > PRICEBOOK_MAX_BYTES) {
+          return {
+            ok: false,
+            count: 0,
+            entries: [],
+            path: pricebookUrl,
+            error: `Pricebook too large (${Math.round(declared / 1e6)} MB > ${Math.round(PRICEBOOK_MAX_BYTES / 1e6)} MB cap).`,
+          };
+        }
+        let xml: string;
+        if (pricebookUrl.toLowerCase().endsWith('.xml')) {
+          xml = await res.text();
+        } else {
+          // The body is gzip-compressed unless it's an .xml URL (matches the real
+          // player); fall back to raw inflate, then plain text, before giving up.
+          const buf = Buffer.from(await res.arrayBuffer());
+          try {
+            xml = gunzipSync(buf).toString('utf-8');
+          } catch {
+            try {
+              xml = inflateSync(buf).toString('utf-8');
+            } catch {
+              xml = buf.toString('utf-8');
+            }
+          }
+        }
+        const entries = parsePricebookXml(xml);
+        console.log(`[Pricebook]   parsed ${entries.length} items`);
+        try {
+          await writeFile(join(app.getPath('userData'), `pricebook-${playerCode}.xml`), xml, 'utf-8');
+        } catch (writeErr) {
+          console.warn('[Pricebook] Failed to cache downloaded pricebook:', writeErr);
+        }
+        if (entries.length === 0) {
+          return { ok: false, count: 0, entries: [], path: pricebookUrl, error: 'Downloaded pricebook parsed to 0 items (unsupported dialect?).' };
+        }
+        return { ok: true, count: entries.length, entries, path: pricebookUrl };
+      } catch (err) {
+        const aborted = err instanceof Error && err.name === 'AbortError';
+        const error = aborted
+          ? `Pricebook download timed out after ${PRICEBOOK_DOWNLOAD_TIMEOUT_MS / 1000}s.`
+          : err instanceof Error
+            ? err.message
+            : String(err);
+        return { ok: false, count: 0, entries: [], path: pricebookUrl, error };
+      } finally {
+        clearTimeout(timer);
       }
     },
   );
@@ -341,10 +455,10 @@ let mainWindow: BrowserWindow | null = null;
 
 function createWindow(): void {
   const win = new BrowserWindow({
-    width: 1320,
+    width: 1680,
     height: 1000,
     minWidth: 1100,
-    minHeight: 820,
+    minHeight: 760,
     show: false,
     autoHideMenuBar: true,
     webPreferences: {
@@ -376,6 +490,14 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('io.rocketpartners.ckemulator2');
+
+  // LOA mode embeds the real loa-player as a cross-origin iframe. Electron stamps its
+  // own token onto every frame's user agent, which makes the player believe it is the
+  // Electron shell and pin its parent origin to file:// — silently breaking the
+  // postMessage bridge in both directions. Present a plain Chrome user agent instead so
+  // the player resolves our renderer's origin from the referrer. Must be set before any
+  // window is created, since the session captures it at load time.
+  app.userAgentFallback = browserUserAgent(app.userAgentFallback);
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window);

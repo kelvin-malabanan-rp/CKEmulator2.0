@@ -28,7 +28,7 @@
   --r-lg: 12px;
 
   /* Typography — sans for UI chrome, mono for all numeric / data / log text. */
-  --font-sans: "Anthropic Sans", -apple-system, "Segoe UI", Roboto, system-ui, sans-serif;
+  --font-sans: "Poppins", -apple-system, "Segoe UI", Roboto, system-ui, sans-serif;
   --font-mono: "Anthropic Sans Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
 
   /* Derived (opaque) surfaces + states — resolve per-mode via the tokens above. */
@@ -117,6 +117,7 @@ h3 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing
 .hint { font-size: 11px; color: var(--text-muted); line-height: 1.35; margin: 0; }
 .hint code { background: var(--control-bg); padding: 1px 4px; border-radius: var(--r-chip); color: var(--text); font-family: var(--font-mono); }
 .initerr { color: var(--danger); font-size: 12px; }
+.pbstatus { color: var(--success); font-size: 12px; }
 
 .dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; display: inline-block; }
 .dot.idle { background: var(--text-muted); }
@@ -181,16 +182,49 @@ h3 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing
    narrower (~38%), right wider (~62%); two equal rows. The 1px gap over a
    border-coloured background renders as shared 1px dividers between quadrants,
    so the grid reads as one structure rather than four floating cards. */
-.grid2x2 {
+/* The universal two-column layout for every register type: controls (Quick Keys
+   over Ads) on the left, Transaction over the info/config panel on the right. LOA
+   mode is the same grid plus the embedded-player banner (see .loagrid--loa). Each
+   column scrolls its own overflow. */
+.loagrid {
   flex: 1 1 auto;
   min-height: 0;
   display: grid;
   grid-template-columns: minmax(0, 38fr) minmax(0, 62fr);
-  grid-template-rows: 1fr 1fr;
   gap: 1px;
   background: var(--border);
   overflow: hidden;
 }
+.loacol { min-width: 0; min-height: 0; display: grid; gap: 1px; background: var(--border); overflow: hidden; }
+/* Left column is Quick Keys + Ads (Transaction moved to the right column), both
+   3×3. Quick-key cells only need ~one line of name + price, so Ads gets the larger
+   share — its cards carry name + type + two buttons and were cramped at 50/50. */
+.loacol-controls { grid-template-rows: 0.85fr 1.15fr; }
+/* LOA Quick Keys — 3×3, matching the Ads grid. :not(.searching) leaves the
+   search-scroll grid alone. */
+/* Slightly tighter Transaction footer spacing in this dense two-column layout. */
+.loagrid .totals { margin-top: 8px; padding-top: 8px; }
+.loagrid .tender { margin-top: 10px; }
+/* Right column: Transaction over the info/config panel. */
+.loacol-player { grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
+/* LOA adds the player banner as a third row on top (auto — sized to its native
+   aspect ratio, see .loaframeframe); the short banner leaves Transaction + Config
+   to share the height below it. */
+.loagrid--loa .loacol-player { grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr); }
+.quad-loa { padding: 0; }
+.loaframe { min-height: 0; display: flex; flex-direction: column; }
+.loaframehead {
+  display: flex; align-items: baseline; gap: 8px; padding: 8px 12px;
+  border-bottom: 1px solid var(--border); background: var(--card-bg);
+}
+.loaframetitle { font-size: 13px; font-weight: 600; }
+.loaframeurl { font-size: 11px; color: var(--text-muted); }
+/* The loa-player (Mashgin renderer) draws at a fixed 1058×227 native size, so we
+   match that aspect ratio: the iframe fills the width and its height follows, and
+   the ad covers the whole frame with no black band below. */
+.loaframeframe { display: block; width: 100%; aspect-ratio: 1058 / 227; border: 0; background: #000; }
+.loaframeempty { flex: 1; display: flex; align-items: center; justify-content: center; padding: 24px; text-align: center; color: var(--text-muted); font-size: 13px; }
+
 /* Each quadrant is a fixed box: it never grows/shrinks to its own content —
    overflow scrolls inside the quadrant only, never into a neighbour. */
 .quad { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--card-bg); overflow: hidden; }
@@ -214,21 +248,22 @@ h3 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing
 .qkclear { background: var(--control-bg); border: 1px solid var(--border); color: var(--text-muted); border-radius: var(--r-ctrl); width: 30px; cursor: pointer; font-size: 14px; line-height: 1; }
 .qkclear:hover { color: var(--text); }
 .qkcount { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); white-space: nowrap; flex-shrink: 0; }
-/* Fixed 3×5 page filling the quad height; a live search flattens the pages and
-   scrolls the same grid instead of paging. */
-.qkgrid { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: repeat(5, minmax(0, 1fr)); gap: 6px; }
-.qkgrid.searching { grid-template-rows: none; grid-auto-rows: 74px; overflow-y: auto; }
+/* Fixed 3×3 page filling the quad height; browse and search both paginate through
+   it (only a page of cards renders at a time). */
+.qkgrid { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: repeat(3, minmax(0, 1fr)); gap: 6px; }
 .keyrow { position: relative; display: flex; min-height: 0; }
-.key { flex: 1; min-width: 0; height: 100%; display: flex; flex-direction: column; gap: 3px; align-items: stretch; justify-content: space-between; background: var(--control-bg); border: 1px solid var(--border); border-radius: var(--r-ctrl); padding: 7px 8px; color: var(--text); cursor: pointer; overflow: hidden; text-align: left; }
+/* Key content stacks top-down: tiny UPC label, item name (grows), price pinned to
+   the bottom-right. flex-start + margin-top:auto on the price keeps the name at the
+   top and the price flush to the bottom regardless of key height. */
+.key { flex: 1; min-width: 0; height: 100%; display: flex; flex-direction: column; gap: 2px; align-items: stretch; justify-content: flex-start; background: var(--control-bg); border: 1px solid var(--border); border-radius: var(--r-ctrl); padding: 7px 8px; color: var(--text); cursor: pointer; overflow: hidden; text-align: left; }
 .key:hover { border-color: var(--accent); }
-/* Only the name clears the top-right star; the price row keeps full width so it
-   sits flush to the card's right edge. */
-.keyname { font-size: 13px; line-height: 1.25; padding-right: 18px; word-break: break-word; display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-.keymeta { display: flex; align-items: baseline; justify-content: space-between; width: 100%; gap: 8px; }
-/* Barcodes get lifted one step off --text-muted (testers actively cross-reference
-   them) while staying clearly quieter than the item name. */
-.keyplu { font-family: var(--font-mono); font-size: 11px; color: color-mix(in srgb, var(--text-muted) 60%, var(--text)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.keyprice { font-family: var(--font-mono); font-size: 13px; color: var(--text); flex-shrink: 0; }
+/* UPC: small "label" above the name (like a superscript), muted, top-left. Clears
+   the top-right star via padding-right. */
+.keyplu { font-family: var(--font-mono); font-size: 9px; line-height: 1.2; color: color-mix(in srgb, var(--text-muted) 60%, var(--text)); padding-right: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Item name — the primary text. Clears the top-right star and clamps to 2 lines. */
+.keyname { font-size: 13px; line-height: 1.2; padding-right: 18px; word-break: break-word; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+/* Price pinned to the bottom-right (margin-top:auto pushes it down past the name). */
+.keyprice { font-family: var(--font-mono); font-size: 13px; color: var(--text); flex-shrink: 0; margin-top: auto; align-self: flex-end; }
 .key.green { background: color-mix(in srgb, var(--success) 20%, var(--card-bg)); border-color: color-mix(in srgb, var(--success) 45%, var(--border)); }
 .key.grey { background: var(--card-bg); color: var(--text-muted); }
 .key.grey .keyprice { color: var(--text-muted); }
@@ -252,7 +287,7 @@ h3 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing
 .txtitle { margin: 0; font-size: 18px; color: var(--text); }
 .txcontext { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 55%; }
 .txbody { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
-.txempty { height: 100%; min-height: 200px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center; }
+.txempty { height: 100%; min-height: 120px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center; }
 .txemptybig { font-size: 22px; font-weight: 600; color: var(--text-muted); }
 .txemptysub { font-size: 13px; color: var(--text-muted); }
 .basket { width: 100%; border-collapse: collapse; font-size: 14px; }
@@ -276,7 +311,7 @@ h3 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing
 .totals .grand span { font-size: 15px; color: var(--text); font-weight: 600; }
 .totals .grand .num { font-size: 22px; font-weight: 700; }
 
-.tender { flex: 0 0 auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 14px; }
+.tender { flex: 0 0 auto; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 14px; }
 .tender button { padding: 12px 10px; font-size: 14px; border-radius: var(--r-ctrl); border: 1px solid transparent; cursor: pointer; font-weight: 600; }
 .tender button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
 .tender button.primary:hover:not(:disabled) { background: var(--accent-hover); }
@@ -286,8 +321,12 @@ h3 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing
 .tender button.secondary:hover:not(:disabled) { border-color: color-mix(in srgb, var(--accent) 60%, transparent); }
 .tender button:disabled { opacity: .4; cursor: not-allowed; }
 
-.voidrow { flex: 0 0 auto; display: flex; justify-content: flex-end; margin-top: 16px; }
-.voidticket { background: transparent; color: var(--danger); border: 1px solid var(--danger); border-radius: var(--r-ctrl); padding: 7px 14px; font-size: 12px; font-weight: 600; cursor: pointer; }
+/* Void ticket sits in the tender grid as a 4th button (danger-outlined), matching
+   the tender buttons' size so the row aligns and the item list gets that height back. */
+.voidticket { background: transparent; color: var(--danger); border: 1px solid var(--danger); border-radius: var(--r-ctrl); padding: 12px 10px; font-size: 14px; font-weight: 600; cursor: pointer; }
+/* `.tender button` sets a transparent border and outranks `.voidticket`, so it'd
+   render as bare floating text — restore the danger outline at higher specificity. */
+.tender .voidticket { border-color: var(--danger); }
 .voidticket:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 14%, var(--card-bg)); }
 .voidticket:disabled { opacity: .4; cursor: not-allowed; }
 
@@ -362,17 +401,18 @@ h3 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing
 .tcdot.unknown { background: var(--bg); border: 1px solid var(--border); }
 /* 3×3 paginated card grid filling the quadrant — 3 rows share the height, so no
    card is ever clipped and each card's Triggers / Completers buttons stay visible. */
+/* 3×3 ad grid, matching the Quick Keys grid above it (perPage 9 in TriggersCompleters). */
 .tcgrid { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: repeat(3, minmax(0, 1fr)); gap: 6px; overflow: hidden; }
-.tccard { display: flex; flex-direction: column; gap: 4px; background: var(--control-bg); border: 1px solid var(--border); border-radius: var(--r-card); padding: 8px; overflow: hidden; }
+.tccard { display: flex; flex-direction: column; gap: 3px; background: var(--control-bg); border: 1px solid var(--border); border-radius: var(--r-card); padding: 7px 8px; overflow: hidden; }
 .tccard.interactive { border-left: 3px solid var(--accent); }
 .tccardhead { display: flex; align-items: center; gap: 6px; min-width: 0; }
 /* Name and subtitle need a clear weight+size gap so the list scans fast: the name
    is the bold 13px anchor (2-line clamp + a native title tooltip carry the full
    text), the subtitle stays a light, muted 10px caption. */
-.tccardname { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.2; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; word-break: break-word; }
+.tccardname { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.15; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; word-break: break-word; }
 .tccardtype { font-size: 10px; font-weight: 400; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tccardbtns { display: flex; gap: 4px; margin-top: auto; }
-.tccardbtns .tcbtn { flex: 1; padding: 6px 4px; font-size: 11px; }
+.tccardbtns .tcbtn { flex: 1; padding: 5px 4px; font-size: 11px; }
 .tcsilent { flex: 0 0 auto; background: var(--control-bg); color: var(--text); border: 1px solid var(--border); border-radius: var(--r-ctrl); padding: 2px 7px; font-size: 10px; line-height: 1.2; cursor: pointer; }
 .tcsilent:hover:not(:disabled) { background: var(--control-hover); border-color: var(--accent); }
 .tcsilent:disabled { opacity: .4; cursor: not-allowed; }
@@ -450,7 +490,7 @@ h3 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing
 .cfglbl { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--text-muted); font-weight: 700; }
 /* Fixed width + ellipsis on the closed control so a long register-type label
    can't wrap and push the row. */
-select.regtype { width: 280px; max-width: 280px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: var(--input-bg); border: 1px solid var(--border); color: var(--text); border-radius: var(--r-ctrl); padding: 7px 9px; font-size: 12px; }
+select.regtype { width: 420px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: var(--input-bg); border: 1px solid var(--border); color: var(--text); border-radius: var(--r-ctrl); padding: 7px 9px; font-size: 12px; }
 .cfgfield input.host { width: 150px; background: var(--input-bg); border: 1px solid var(--border); color: var(--text); border-radius: var(--r-ctrl); padding: 7px 9px; }
 .cfgfield input.pkey { width: 340px; max-width: 100%; background: var(--input-bg); border: 1px solid var(--border); color: var(--text); border-radius: var(--r-ctrl); padding: 7px 9px; }
 .cfgregister { background: var(--accent); color: var(--accent-text); border: 0; border-radius: var(--r-ctrl); padding: 8px 16px; font-weight: 600; cursor: pointer; }

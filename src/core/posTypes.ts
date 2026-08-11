@@ -10,6 +10,28 @@ export type ConnState = 'connected' | 'connecting' | 'disconnected';
 export type Status = Record<Channel, ConnState>;
 
 /**
+ * Channels a WireMessage can target. The TCP transport (PosTransport) only knows
+ * the hardware `Channel`s; `loa` is a renderer-only pseudo-channel whose payload
+ * is an NGRP order-document JSON string delivered to the embedded loa-player over
+ * cross-origin postMessage (LOA mode), never over a socket.
+ */
+export type WireChannel = Channel | 'loa';
+
+/** Entry URL of the embedded loa-player dev server (LOA mode). `npm run serve:player`. */
+export const LOA_PLAYER_ENTRY_URL = 'http://localhost:9000/index.html';
+
+/**
+ * Build the embedded loa-player URL, passing the player key in the hash
+ * (`#playerKey=…`) so it boots as that registered player (resolving its tenant,
+ * settings and Mashgin station). An empty key yields the bare URL — the player
+ * would boot with a default config and not consume our order documents.
+ */
+export function loaEntryUrl(playerKey: string, baseUrl: string = LOA_PLAYER_ENTRY_URL): string {
+  const key = playerKey.trim();
+  return key ? `${baseUrl}#playerKey=${key}` : baseUrl;
+}
+
+/**
  * POS register types — each listens on its own VJ/pole ports; radiant6-us
  * shares the Radiant6 ports but flips VJ-totals/rounding behavior
  * (see RegisterSession). verifone-topaz adds a third feed (scanner) —
@@ -27,7 +49,8 @@ export type RegisterType =
   | 'radiant6-us'
   | 'bulloch'
   | 'verifone-topaz'
-  | 'verifone-topaz-lol';
+  | 'verifone-topaz-lol'
+  | 'loa-player';
 
 /** NetBird address of the LoL legacy-LIFT-on-Linux player (display :10, lane player2_lane1). */
 export const LOL_VM_HOST = '100.6.7.113';
@@ -78,7 +101,16 @@ export const REGISTER_TYPES: ReadonlyArray<{
     scannerPort: 10000,
     defaultHost: LOL_VM_HOST,
   },
+  // LOA mode: no TCP ports. The player is embedded as a cross-origin iframe and
+  // driven over postMessage (see LOA_PLAYER_ENTRY_URL / loaTransport). Ports are
+  // 0 so nothing tries to open a socket; isLoaRegisterType() gates that.
+  { value: 'loa-player', label: 'LOA (loa-player)', vjPort: 0, polePort: 0 },
 ];
+
+/** True for LOA mode — the postMessage/iframe transport, not a TCP register. */
+export function isLoaRegisterType(type: RegisterType): boolean {
+  return baseRegisterType(type) === 'loa-player';
+}
 
 /** Look up the VJ/pole (and, for Topaz, scanner) ports for a register type. */
 export function portsForRegisterType(
@@ -154,6 +186,13 @@ export interface EmulatorBridge {
   onInject(cb: (cmd: InjectCommand) => void): () => void;
   /** Load the pricebook matching the player code from a local directory. Empty dir uses the bundled sample. */
   loadPricebook(req: { dir?: string; playerCode: string }): Promise<PricebookLoadResult>;
+  /** Download + parse the live pricebook for the registered player (PDI/NAXML or OCT2000). */
+  downloadPricebook(req: {
+    pricebookUrl: string;
+    playerCode: string;
+    playerKey: string;
+    locationCode: string;
+  }): Promise<PricebookLoadResult>;
   /** Register the player.key against the datacenters and return the generated config. */
   registerPlayer(req: { playerKey: string; product?: string }): Promise<GlobalInitResult>;
   /** Load the persisted player.key file (generated config) saved by a prior registration. */

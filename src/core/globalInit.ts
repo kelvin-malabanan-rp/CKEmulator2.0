@@ -126,6 +126,24 @@ export function resolveTenantUrl(url: string, tenant: string): string {
 }
 
 /**
+ * Resolve the pricebook download URL for the current player. The init response
+ * commonly omits `pricebook.url`, so fall back to deriving it from the init
+ * endpoint's origin + tenant — mirrors the reference emulator's
+ * `resolvePricebookUrl` (portal-client.js). Returns '' when neither is available.
+ */
+export function resolvePricebookUrl(endpoints: Record<string, string>, tenant: string): string {
+  const configured = endpoints['pricebook.url'];
+  if (configured) return resolveTenantUrl(configured, tenant);
+  const initUrl = endpoints['init.url'];
+  if (!initUrl) return '';
+  try {
+    return `${new URL(initUrl).origin}/api/lift/${tenant}/pricebook`;
+  } catch {
+    return '';
+  }
+}
+
+/**
  * Filename for the persisted generated config, matching the legacy player's
  * `player.key` file (`EmulatorUI.PLAYER_KEY_FILENAME`). The `# Generated on …`
  * properties block is written here so endpoints survive an app restart.
