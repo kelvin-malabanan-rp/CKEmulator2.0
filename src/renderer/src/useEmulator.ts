@@ -524,15 +524,13 @@ export function useEmulator(): {
   // grid. Resolves pricebook.url from the GlobalInit config (deriving it from the
   // init origin when absent); the main process fetches + parses (PDI/NAXML or
   // OCT2000). Requires a registered player (globalInit).
+  // An explicit click always (re-)downloads for the currently registered player.
+  // Redundant *automatic* loads are avoided elsewhere: startup/registration read
+  // the userData cache instead of the network (see loadPricebook), so this only
+  // hits the network on a deliberate download.
   const downloadPricebook = useCallback(async () => {
     if (!globalInit) {
       logSys('Register the player first, then download its pricebook.');
-      return;
-    }
-    // Download once per player: if we already have this player's pricebook in the
-    // grid, skip the fetch/parse/rebuild entirely (re-register to force a refresh).
-    if (pricebookDownloadedCode === globalInit.playerCode) {
-      logSys(`Pricebook already loaded for ${globalInit.playerCode} — skipping re-download.`);
       return;
     }
     const pricebookUrl = resolvePricebookUrl(globalInit.endpoints, globalInit.tenant);
@@ -567,7 +565,7 @@ export function useEmulator(): {
     } else {
       logSys(`Pricebook download failed: ${result.error}`);
     }
-  }, [globalInit, playerConfig.playerKey, pricebookDownloadedCode, logSys]);
+  }, [globalInit, playerConfig.playerKey, logSys]);
 
   // Load the pricebook on mount and whenever the player code or pricebook dir
   // changes — so once hydration resolves the player code, a previously-downloaded

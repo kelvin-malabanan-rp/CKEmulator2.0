@@ -99,17 +99,17 @@ export function ConfigTab({ e }: { e: ReturnType<typeof useEmulator> }): JSX.Ele
 
         <button
           className="cfgregister"
-          disabled={!e.globalInit || pricebookLoaded}
+          disabled={!e.globalInit}
           onClick={() => void e.downloadPricebook()}
           title={
             !e.globalInit
               ? 'Register the player first'
               : pricebookLoaded
-                ? 'This player’s pricebook is already loaded — re-register to refresh'
+                ? 'Re-download this player’s live pricebook (fetches a fresh copy)'
                 : 'Download this player’s live pricebook and load it into the item grid'
           }
         >
-          {pricebookLoaded ? '✓ Pricebook loaded' : 'Download pricebook'}
+          {pricebookLoaded ? 'Re-download pricebook' : 'Download pricebook'}
         </button>
       </div>
 
