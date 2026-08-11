@@ -212,7 +212,9 @@ export function TriggersCompleters({
                       title={modal.kind === 'triggers' ? 'Scan to fire this ad, then pick a completer' : 'Scan this completer into the basket'}
                       onClick={() => onItemClick(it)}
                     >
-                      <span>{it.description || it.code}</span>
+                      {/* Backend ad docs often omit the item name; fall back to the
+                          downloaded pricebook (UPC→name) before showing the bare code. */}
+                      <span>{it.description || e.pricebookIndex.get(it.code)?.description || it.code}</span>
                       <small>{it.code}</small>
                     </button>
                   ))}

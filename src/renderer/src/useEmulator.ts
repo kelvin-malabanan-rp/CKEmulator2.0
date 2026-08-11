@@ -20,6 +20,7 @@ import {
   type PricebookEntry,
   type QuickKeyItem,
   type PricebookLoadResult,
+  type ResolvedItem,
 } from '../../core/pricebook';
 import { resolvePricebookUrl, type GlobalInitConfig } from '../../core/globalInit';
 import { quickKeyColor, type QuickKeyColor, type QuickKeyEntry, type QuickKeyFile } from '../../core/quickkeys';
@@ -116,6 +117,8 @@ export function useEmulator(): {
   voidTicket: () => void;
   suspend: () => void;
   resume: () => void;
+  /** UPC/PLU → resolved pricebook item, for name lookups (e.g. ad trigger/completer items). */
+  pricebookIndex: Map<string, ResolvedItem>;
 } {
   const [config, setConfig] = useState<PosConfig>(DEFAULT_POS_CONFIG);
 
@@ -683,6 +686,7 @@ export function useEmulator(): {
       },
       suspend: () => dispatch(session.suspend()),
       resume: () => dispatch(session.resume()),
+      pricebookIndex,
     }),
     [
       snapshot,
