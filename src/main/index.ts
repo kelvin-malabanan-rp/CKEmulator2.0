@@ -12,6 +12,7 @@ import type { PricebookLoadResult } from '../core/pricebook';
 import { parseQuickKeys, orderQuickKeyFiles, resolveQuickKeyDir } from '../core/quickkeys';
 import type { QuickKeyFile, QuickKeyLoadResult } from '../core/quickkeys';
 import { DATACENTERS, toGlobalInitConfig, configFromPlayerKeyFile, PLAYER_KEY_FILENAME, extractLocationCode } from '../core/globalInit';
+import { browserUserAgent } from '../core/userAgent';
 import type { GlobalInitResult } from '../core/globalInit';
 import type { AdsManifestResult, AdDetailResult, RawAdConfig } from '../core/adTriggers';
 
@@ -341,10 +342,10 @@ let mainWindow: BrowserWindow | null = null;
 
 function createWindow(): void {
   const win = new BrowserWindow({
-    width: 1320,
+    width: 1680,
     height: 1000,
     minWidth: 1100,
-    minHeight: 820,
+    minHeight: 760,
     show: false,
     autoHideMenuBar: true,
     webPreferences: {
@@ -376,6 +377,14 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('io.rocketpartners.ckemulator2');
+
+  // LOA mode embeds the real loa-player as a cross-origin iframe. Electron stamps its
+  // own token onto every frame's user agent, which makes the player believe it is the
+  // Electron shell and pin its parent origin to file:// — silently breaking the
+  // postMessage bridge in both directions. Present a plain Chrome user agent instead so
+  // the player resolves our renderer's origin from the referrer. Must be set before any
+  // window is created, since the session captures it at load time.
+  app.userAgentFallback = browserUserAgent(app.userAgentFallback);
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window);

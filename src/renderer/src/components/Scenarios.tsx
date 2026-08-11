@@ -21,6 +21,7 @@ const REGISTER_TAG: Record<RegisterType, string> = {
   bulloch: 'BUL',
   'verifone-topaz': 'TPZ',
   'verifone-topaz-lol': 'LoL',
+  'loa-player': 'LOA',
 };
 
 const REGISTER_TAG_TITLE: Record<RegisterType, string> = {
@@ -29,6 +30,7 @@ const REGISTER_TAG_TITLE: Record<RegisterType, string> = {
   bulloch: 'Bulloch (Canada, pole-only)',
   'verifone-topaz': 'Verifone Topaz (US, plaintext VJ + scanner)',
   'verifone-topaz-lol': 'Verifone Topaz — LoL VM (US, plaintext VJ + scanner)',
+  'loa-player': 'LOA (loa-player, embedded iframe over postMessage)',
 };
 
 /** Compact per-step trail: `n/m kind glyph [detail]` — used live and for the last result. */

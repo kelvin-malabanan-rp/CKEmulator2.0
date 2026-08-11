@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { formatCurrency, type PosLocale } from '../../../core/currency';
 import { REGISTER_TYPES } from '../../../core/posTypes';
 import type { useEmulator } from '../useEmulator';
@@ -22,6 +22,19 @@ export function TransactionPanel({
   const visibleLines = snapshot.lines.filter((li) => !li.voided);
   const [confirmingVoid, setConfirmingVoid] = useState(false);
 
+  // Keep the newest scan in view: new lines append to the bottom, so scroll the
+  // basket to the bottom whenever a line is added — the cashier never has to
+  // scroll to the latest item. Keyed on the last line number + count so it fires
+  // on each add (and after a void that shifts the tail), not on every render.
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const lastLineNumber = visibleLines.length ? visibleLines[visibleLines.length - 1].lineNumber : 0;
+  useEffect(() => {
+    const el = bodyRef.current;
+    // Only when there are items — scrolling the empty state to the bottom would
+    // push the centered "No items" prompt out of view on load.
+    if (el && visibleLines.length > 0) el.scrollTop = el.scrollHeight;
+  }, [lastLineNumber, visibleLines.length]);
+
   // Terminal/VJ context for the header (muted mono, right-aligned).
   const regLabel = REGISTER_TYPES.find((r) => r.value === e.config.registerType)?.label ?? e.config.registerType;
   const context = `${regLabel} · VJ ${e.config.host}:${e.config.vjPort}`;
@@ -38,7 +51,7 @@ export function TransactionPanel({
         <span className="txcontext" title={context}>{context}</span>
       </div>
 
-      <div className="txbody">
+      <div className="txbody" ref={bodyRef}>
         {visibleLines.length === 0 ? (
           <div className="txempty">
             <span className="txemptybig">No items</span>
@@ -88,12 +101,7 @@ export function TransactionPanel({
         <button className="primary" disabled={!hasItems} onClick={() => e.tender('cash-exact')}>Cash (exact)</button>
         <button className="secondary" disabled={!hasItems} onClick={() => e.tender('next-dollar')}>Next $</button>
         <button className="primary" disabled={!hasItems} onClick={() => e.tender('amount', snapshot.totalCents + 500)}>Cash +$5</button>
-      </div>
-
-      <div className="voidrow">
-        <button className="voidticket" disabled={!hasItems} onClick={() => setConfirmingVoid(true)}>
-          Void ticket
-        </button>
+        <button className="voidticket" disabled={!hasItems} onClick={() => setConfirmingVoid(true)}>Void ticket</button>
       </div>
 
       {confirmingVoid && (

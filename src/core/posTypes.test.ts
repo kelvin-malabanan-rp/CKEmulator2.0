@@ -7,7 +7,10 @@ import {
   portsForRegisterType,
   hostForRegisterType,
   baseRegisterType,
+  isLoaRegisterType,
+  loaEntryUrl,
   LOL_VM_HOST,
+  LOA_PLAYER_ENTRY_URL,
 } from './posTypes';
 
 describe('normalizePlayerConfig', () => {
@@ -50,13 +53,14 @@ describe('register types & ports', () => {
     expect(portsForRegisterType('bulloch')).toEqual({ vjPort: 5438, polePort: 5440 });
   });
 
-  it('lists exactly the five register types with labels', () => {
+  it('lists exactly the six register types with labels', () => {
     expect(REGISTER_TYPES.map((r) => r.value)).toEqual([
       'radiant6-canada',
       'radiant6-us',
       'bulloch',
       'verifone-topaz',
       'verifone-topaz-lol',
+      'loa-player',
     ]);
     expect(REGISTER_TYPES.find((r) => r.value === 'bulloch')?.label).toBe('Bulloch');
   });
@@ -82,6 +86,26 @@ describe('register types & ports', () => {
   it('omits scannerPort for register types without a scanner feed', () => {
     expect(portsForRegisterType('radiant6-canada')).not.toHaveProperty('scannerPort');
     expect(portsForRegisterType('bulloch')).not.toHaveProperty('scannerPort');
+  });
+
+  it('registers LOA with no TCP ports (postMessage transport)', () => {
+    const loa = REGISTER_TYPES.find((r) => r.value === 'loa-player');
+    expect(loa).toEqual({ value: 'loa-player', label: 'LOA (loa-player)', vjPort: 0, polePort: 0 });
+    expect(LOA_PLAYER_ENTRY_URL).toMatch(/^https?:\/\//);
+  });
+
+  it('isLoaRegisterType is true only for the LOA mode', () => {
+    expect(isLoaRegisterType('loa-player')).toBe(true);
+    expect(isLoaRegisterType('radiant6-canada')).toBe(false);
+    expect(isLoaRegisterType('verifone-topaz')).toBe(false);
+    expect(isLoaRegisterType('bulloch')).toBe(false);
+  });
+
+  it('loaEntryUrl appends the player key in the hash, or bare when absent', () => {
+    expect(loaEntryUrl('9f419cb6-dev')).toBe(`${LOA_PLAYER_ENTRY_URL}#playerKey=9f419cb6-dev`);
+    expect(loaEntryUrl('  9f419cb6-dev  ')).toBe(`${LOA_PLAYER_ENTRY_URL}#playerKey=9f419cb6-dev`);
+    expect(loaEntryUrl('')).toBe(LOA_PLAYER_ENTRY_URL);
+    expect(loaEntryUrl('k', 'http://localhost:5173/shopper.html')).toBe('http://localhost:5173/shopper.html#playerKey=k');
   });
 
   it('maps Radiant6 US to VJ 5438 / pole 5439 (shared Radiant6 ports)', () => {

@@ -3,7 +3,7 @@ import { PRICEBOOK, useEmulator } from './useEmulator';
 import { useScenarioRunner } from './useScenarioRunner';
 import { findAnyCompleter, findPrepayItem } from '../../core/adTriggers';
 import { builtinScenarios, type ScenarioParams } from '../../core/scenarios';
-import { baseRegisterType } from '../../core/posTypes';
+import { baseRegisterType, isLoaRegisterType } from '../../core/posTypes';
 import { usePersistedState } from './usePersistedState';
 import {
   SCENARIO_CARD_KEY,
@@ -34,6 +34,7 @@ import { QuickKeys } from './components/QuickKeys';
 import { TriggersCompleters } from './components/TriggersCompleters';
 import { TransactionPanel } from './components/TransactionPanel';
 import { InfoPanel } from './components/InfoPanel';
+import { LoaFrame } from './components/LoaFrame';
 import './App.css';
 
 /** OS preference read once for the first-load theme default (no persisted choice). */
@@ -110,53 +111,85 @@ function App(): JSX.Element {
     [lastRun, params],
   );
 
+  // LOA mode replaces the TCP hardware view with an embedded player. The same
+  // panels drive it (they only call `e` — dispatch now routes to postMessage).
+  const isLoa = isLoaRegisterType(e.config.registerType);
+
+  const quickKeysQuad = (
+    <section className="quad quad-qk">
+      <QuickKeys e={e} locale={locale} />
+    </section>
+  );
+  const transactionQuad = (
+    <section className="quad quad-tx">
+      <TransactionPanel e={e} locale={locale} />
+    </section>
+  );
+  const adsQuad = (
+    <section className="quad quad-ads">
+      <div className="adshead">
+        <span className="adstitle">Ads</span>
+      </div>
+      <TriggersCompleters e={e} r={r} params={params} />
+    </section>
+  );
+  const infoQuad = (
+    <section className="quad quad-info">
+      <InfoPanel
+        e={e}
+        r={r}
+        params={params}
+        tab={panelTab}
+        setTab={setPanelTab}
+        scenarioCount={scenarioCount}
+        lastRun={lastRun}
+        rerunScenario={rerunScenario}
+        scenario={{
+          loyaltyCard,
+          setLoyaltyCard,
+          stepGapMs,
+          setStepGapMs,
+          upcCoupon12,
+          setUpcCoupon12,
+          prepayAmountCents,
+          setPrepayAmountCents,
+          prepayPumpNumber,
+          setPrepayPumpNumber,
+        }}
+      />
+    </section>
+  );
+
   return (
     <div className="app">
       <TopBar e={e} theme={theme} setTheme={setTheme} />
 
-      {/* Fixed 2×2 grid: Quick Keys / Transaction on top, Ads / Info below.
-          Each quadrant is a fixed box that scrolls its own overflow. */}
-      <div className="grid2x2">
-        <section className="quad quad-qk">
-          <QuickKeys e={e} locale={locale} />
-        </section>
-
-        <section className="quad quad-tx">
-          <TransactionPanel e={e} locale={locale} />
-        </section>
-
-        <section className="quad quad-ads">
-          <div className="adshead">
-            <span className="adstitle">Ads</span>
+      {isLoa ? (
+        // LOA: left column = controls (quick keys / transaction / ads),
+        // right column = the embedded player over the wire log + config.
+        <div className="loagrid">
+          <div className="loacol loacol-controls">
+            {quickKeysQuad}
+            {adsQuad}
           </div>
-          <TriggersCompleters e={e} r={r} params={params} />
-        </section>
-
-        <section className="quad quad-info">
-          <InfoPanel
-            e={e}
-            r={r}
-            params={params}
-            tab={panelTab}
-            setTab={setPanelTab}
-            scenarioCount={scenarioCount}
-            lastRun={lastRun}
-            rerunScenario={rerunScenario}
-            scenario={{
-              loyaltyCard,
-              setLoyaltyCard,
-              stepGapMs,
-              setStepGapMs,
-              upcCoupon12,
-              setUpcCoupon12,
-              prepayAmountCents,
-              setPrepayAmountCents,
-              prepayPumpNumber,
-              setPrepayPumpNumber,
-            }}
-          />
-        </section>
-      </div>
+          <div className="loacol loacol-player">
+            <section className="quad quad-loa">
+              <LoaFrame playerKey={e.globalInit?.playerKey || e.playerConfig.playerKey} />
+            </section>
+            {transactionQuad}
+            {infoQuad}
+          </div>
+        </div>
+      ) : (
+        // Fixed 2×2 grid: Quick Keys / Transaction on top, Ads / Info below.
+        // Each quadrant is a fixed box that scrolls its own overflow.
+        <div className="grid2x2">
+          {quickKeysQuad}
+          {transactionQuad}
+          {adsQuad}
+          {infoQuad}
+        </div>
+      )}
     </div>
   );
 }

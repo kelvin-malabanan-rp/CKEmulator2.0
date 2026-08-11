@@ -4,11 +4,14 @@ import {
   DEFAULT_POS_CONFIG,
   DEFAULT_PLAYER_CONFIG,
   normalizePlayerConfig,
+  isLoaRegisterType,
   type PosConfig,
   type PlayerConfig,
   type RegisterType,
   type Status,
 } from '../../core/posTypes';
+import type { InjectCommand } from '../../core/injectProtocol';
+import { loaTransport } from './loaTransport';
 import type { PosLocale } from '../../core/currency';
 import {
   buildPricebookIndex,
@@ -364,7 +367,10 @@ export function useEmulator(): {
     (messages: WireMessage[]) => {
       const entries: LogEntry[] = [];
       for (const m of messages) {
-        void window.emulator.send(m.channel, m.data);
+        // LOA docs go to the embedded player over postMessage (renderer);
+        // hardware channels go to the TCP transport in the main process.
+        if (m.channel === 'loa') loaTransport.send(m.data);
+        else void window.emulator.send(m.channel, m.data);
         const now = new Date();
         const text = m.data.replace(/\r\n$/, '');
         entries.push({
@@ -382,13 +388,14 @@ export function useEmulator(): {
     [session],
   );
 
-  // Ring up completer injects pushed by the player over the VJ reverse channel:
-  // resolve the UPC (pricebook → quick keys → fallback) and add it to the basket,
-  // which emits the normal 1011 + pole back so the player's basket reflects it.
-  // Each inject bumps injectSeq — the player completing/adding a completer is the
-  // signal to close the emulator's now-stale completer modal.
-  useEffect(() => {
-    return window.emulator.onInject((cmd) => {
+  // Ring up completer injects pushed by the player: resolve the UPC (pricebook →
+  // quick keys → fallback) and add it to the basket, which re-emits to the player
+  // (1011 + pole on TCP, or a fresh NGRP doc in LOA mode) so its basket reflects
+  // it. Each inject bumps injectSeq — the player acting on a completer is the
+  // signal to close the emulator's now-stale completer modal. Shared by both the
+  // TCP reverse channel (EventId 2001) and LOA's rp-inject-item.
+  const ringUpInject = useCallback(
+    (cmd: InjectCommand) => {
       const hit = pricebookIndex.get(cmd.barcode) ?? quickKeys.find((p) => p.code === cmd.barcode);
       const item = hit
         ? { code: hit.code, description: hit.description, priceCents: hit.priceCents, quantity: cmd.quantity }
@@ -396,10 +403,33 @@ export function useEmulator(): {
       logSys(`Completer inject: ${cmd.barcode} ×${cmd.quantity} → ${item.description}`);
       dispatch(session.addItem(item));
       setInjectSeq((n) => n + 1);
-    });
-  }, [pricebookIndex, quickKeys, session, dispatch, logSys]);
+    },
+    [pricebookIndex, quickKeys, session, dispatch, logSys],
+  );
+
+  useEffect(() => window.emulator.onInject(ringUpInject), [ringUpInject]);
+  useEffect(() => loaTransport.onInject(ringUpInject), [ringUpInject]);
+
+  // Surface the player's inbound LOA messages (rp-inject-item, rp-ad-shown,
+  // rp-session-mode, …) in the Wire Log. Outbound docs are already logged by
+  // dispatch as `loa` lines, so only mirror inbound here.
+  useEffect(
+    () =>
+      loaTransport.onLog((direction, name, detailJson) => {
+        if (direction !== 'in') return;
+        logSys(`← loa ${name}${detailJson ? ` ${detailJson.slice(0, 160)}` : ''}`);
+      }),
+    [logSys],
+  );
 
   const connect = useCallback(async () => {
+    // LOA mode has no TCP socket — the embedded iframe is the "connection".
+    // Skip the hardware connect so PosTransport never dials the (0) ports.
+    if (isLoaRegisterType(config.registerType)) {
+      setAttempted(true);
+      logSys('LOA mode — player embedded via iframe; driving over postMessage (no TCP connect).');
+      return;
+    }
     const scannerNote = config.scannerPort !== undefined ? `, scanner ${config.scannerPort}` : '';
     logSys(`Connecting to ${config.host} (VJ ${config.vjPort}, pole ${config.polePort}${scannerNote})…`);
     setAttempted(true);

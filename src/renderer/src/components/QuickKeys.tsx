@@ -4,10 +4,13 @@ import { paginate } from '../../../core/quickkeys';
 import { usePersistedState } from '../usePersistedState';
 import { QK_PINS_KEY, DEFAULT_QK_PINS, parsePins, serializePins } from '../uiSettings';
 import { filterQuickKeys, sortPinned, togglePin } from '../quickKeyFilter';
+import { isLoaRegisterType } from '../../../core/posTypes';
 import type { QuickKeyEntry } from '../../../core/quickkeys';
 import type { useEmulator } from '../useEmulator';
 
-const QK_PER_PAGE = 15; // 3 columns × 5 rows
+const QK_PER_PAGE_DEFAULT = 12; // 3 columns × 4 rows
+// LOA: 3×3 so Quick Keys mirrors the Ads grid below it in the left column.
+const QK_PER_PAGE_LOA = 9;
 
 /**
  * Top-left quadrant quick keys: search pinned at the top (filter / jump to an
@@ -31,6 +34,7 @@ export function QuickKeys({
   const active = files[Math.min(tab, Math.max(0, files.length - 1))];
   const entries = useMemo(() => active?.entries ?? [], [active]);
   const pinnedSet = useMemo(() => new Set(pins), [pins]);
+  const perPage = isLoaRegisterType(e.config.registerType) ? QK_PER_PAGE_LOA : QK_PER_PAGE_DEFAULT;
 
   // Debounce the search input so typing doesn't re-filter on every keystroke.
   useEffect(() => {
@@ -45,7 +49,7 @@ export function QuickKeys({
     () => (searching ? sortPinned(filterQuickKeys(entries, query), pinnedSet) : sorted),
     [searching, entries, query, pinnedSet, sorted],
   );
-  const pages = useMemo(() => paginate(sorted, QK_PER_PAGE), [sorted]);
+  const pages = useMemo(() => paginate(sorted, perPage), [sorted, perPage]);
   const safePage = Math.min(page, pages.length - 1);
   const current = searching ? results : pages[safePage] ?? [];
 
@@ -53,18 +57,19 @@ export function QuickKeys({
 
   const renderKey = (entry: QuickKeyEntry, i: number): JSX.Element => {
     const pinned = pinnedSet.has(entry.upc);
+    // Show the UPC as a small top-left label above the item name; skip it when
+    // the row has no name (description falls back to the UPC — no point twice).
+    const hasName = entry.description !== entry.upc;
     return (
       <div key={`${entry.upc}-${i}`} className="keyrow">
         <button
           className={`key ${e.quickKeyColorFor(entry.upc)}${pinned ? ' pinned' : ''}`}
-          title={entry.upc}
+          title={hasName ? `${entry.description} · ${entry.upc}` : entry.upc}
           onClick={() => e.fireQuickKey(entry)}
         >
+          {hasName && <span className="keyplu">{entry.upc}</span>}
           <span className="keyname">{entry.description}</span>
-          <span className="keymeta">
-            <span className="keyplu">{entry.upc}</span>
-            <span className="keyprice">{formatCurrency(entry.priceCents, locale)}</span>
-          </span>
+          <span className="keyprice">{formatCurrency(entry.priceCents, locale)}</span>
         </button>
         <button
           className={`pin${pinned ? ' on' : ''}`}

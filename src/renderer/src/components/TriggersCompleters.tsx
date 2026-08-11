@@ -30,7 +30,8 @@ export function TriggersCompleters({
   } | null>(null);
   const [busy, setBusy] = useState<string | null>(null); // "<id>:triggers" | "<id>:completers"
   const ads = e.adManifest;
-  const perPage = 9; // 3 columns × 3 rows
+  // 3×3 grid in every layout (in LOA it mirrors the Quick Keys grid beside it).
+  const perPage = 9;
   const pageCount = Math.max(1, Math.ceil(ads.length / perPage));
   const safePage = Math.min(page, pageCount - 1);
   const current = ads.slice(safePage * perPage, safePage * perPage + perPage);

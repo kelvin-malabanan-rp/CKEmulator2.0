@@ -495,3 +495,67 @@ describe('RegisterSession — Verifone Topaz (VJ + pole + scanner)', () => {
     expect(s.snapshot().locale).toBe('en');
   });
 });
+
+describe('RegisterSession — LOA (postMessage NGRP)', () => {
+  // Deterministic uuid so assertions can pin it; 'AB123' store from storeCode.
+  const loa = (): RegisterSession =>
+    new RegisterSession({ registerType: 'loa-player', taxRateBps: 0, orderUuidGen: () => 'UUID1', storeCode: '3016875' });
+
+  /** Parse the single loa-channel message's NGRP document. */
+  function doc(messages: WireMessage[]): { source: number; storeId: string; order: any } {
+    expect(messages).toHaveLength(1);
+    expect(messages[0].channel).toBe('loa');
+    return JSON.parse(messages[0].data);
+  }
+
+  it('open() sends nothing — an empty order doc would be dropped by the rate limiter', () => {
+    expect(loa().open()).toEqual([]);
+  });
+
+  it('addItem emits one loa doc: source=EMULATOR, OPEN, the item, the minted uuid — never a TCP channel', () => {
+    const s = loa();
+    const msgs = s.addItem({ code: '049000000443', description: 'Coke', priceCents: 229, quantity: 2 });
+    expect(msgs.every((m) => m.channel === 'loa')).toBe(true);
+    const d = doc(msgs);
+    expect(d.source).toBe(1);
+    expect(d.storeId).toBe('3016875');
+    expect(d.order.uuid).toBe('UUID1');
+    expect(d.order.status).toBe('OPEN');
+    expect(d.order.itemLines).toHaveLength(1);
+    expect(d.order.itemLines[0]).toMatchObject({ posCode: '049000000443', amount: 2.29, quantity: 2 });
+    expect(d.order.subtotal).toBe(4.58);
+  });
+
+  it('voiding the last live line cancels the basket; voiding one of several stays OPEN', () => {
+    const s = loa();
+    s.addItem({ code: 'a', description: 'A', priceCents: 100 });
+    s.addItem({ code: 'b', description: 'B', priceCents: 100 });
+    expect(doc(s.voidLine(1)).order.status).toBe('OPEN');
+    expect(doc(s.voidLine(2)).order.status).toBe('CANCELED');
+  });
+
+  it('loyalty attaches a signed-in customer carrying the card number', () => {
+    const s = loa();
+    s.addItem({ code: 'a', description: 'A', priceCents: 100 });
+    const d = doc(s.loyalty('6009152887'));
+    expect(d.order.customer).toEqual({ brierleyId: '', mobileNumber: '', oktaId: '', loyaltyCard: '6009152887' });
+  });
+
+  it('tender closes the order TENDERED and resets the lane for the next sale', () => {
+    const s = loa();
+    s.addItem({ code: 'a', description: 'A', priceCents: 100 });
+    expect(doc(s.tender('cash-exact')).order.status).toBe('TENDERED');
+    // Reset: basket is empty again and the next sale mints a fresh (here identical) uuid.
+    expect(s.snapshot().lines).toHaveLength(0);
+    const next = doc(s.addItem({ code: 'b', description: 'B', priceCents: 50 }));
+    expect(next.order.itemLines).toHaveLength(1);
+    expect(next.order.status).toBe('OPEN');
+  });
+
+  it('voidTicket cancels the in-flight order and resets', () => {
+    const s = loa();
+    s.addItem({ code: 'a', description: 'A', priceCents: 100 });
+    expect(doc(s.voidTicket()).order.status).toBe('CANCELED');
+    expect(s.snapshot().lines).toHaveLength(0);
+  });
+});

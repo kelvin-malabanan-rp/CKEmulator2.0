@@ -9,12 +9,33 @@ import { Basket } from './Basket';
 import { Radiant6CanadaEncoder } from './Radiant6CanadaEncoder';
 import { BullochEncoder } from './BullochEncoder';
 import { TopazEncoder } from './TopazEncoder';
-import { baseRegisterType, type Channel, type RegisterType } from './posTypes';
+import { baseRegisterType, type WireChannel, type RegisterType } from './posTypes';
+import { buildOrderDoc, type NgrpStatus, type NgrpCustomer } from './NgrpEncoder';
 import type { PosLocale } from './currency';
 
 export interface WireMessage {
-  channel: Channel;
+  channel: WireChannel;
   data: string;
+}
+
+const BASE62_CHARS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+
+/**
+ * Default order-uuid generator (LOA mode). base62 of a random 128-bit value —
+ * the shape the reference emulator's CharsetUtils.generateRandomUuidBase62()
+ * produces; a hyphenated hex uuid would break reporting's ascii85 conversion.
+ * Injectable via RegisterSessionOptions.orderUuidGen for deterministic tests.
+ */
+function defaultOrderUuidGen(): string {
+  let hex = '';
+  for (let i = 0; i < 32; i += 1) hex += Math.floor(Math.random() * 16).toString(16);
+  let quotient = BigInt(`0x${hex}`);
+  let out = '';
+  while (quotient > 0n) {
+    out = BASE62_CHARS.charAt(Number(quotient % 62n)) + out;
+    quotient = quotient / 62n;
+  }
+  return out || '0';
 }
 
 export interface AddItemInput {
@@ -60,8 +81,10 @@ export interface RegisterSessionOptions {
    * VJ-authoritative, cents-exact).
    */
   registerType?: RegisterType;
-  /** Topaz basket-end ST# column (verifone-topaz only). */
+  /** Topaz basket-end ST# column (verifone-topaz only); LOA order storeId. */
   storeCode?: string;
+  /** Order-uuid generator for LOA mode. Defaults to a random base62 uuid. */
+  orderUuidGen?: () => string;
 }
 
 export class RegisterSession {
@@ -78,6 +101,11 @@ export class RegisterSession {
   private started = false;
   private suspended = false;
   locale: PosLocale = 'en';
+  /** LOA mode: order uuid for the in-flight basket (regenerated per sale). */
+  private orderUuid = '';
+  /** LOA mode: signed-in loyalty customer, cleared on reset/sign-out. */
+  private loaCustomer: NgrpCustomer | null = null;
+  private readonly orderUuidGen: () => string;
 
   constructor(options: RegisterSessionOptions = {}) {
     this.encoder = new Radiant6CanadaEncoder({
@@ -96,6 +124,7 @@ export class RegisterSession {
     this.operatorId = options.operatorId ?? '12599';
     this.operatorName = options.operatorName ?? 'Timothy';
     this.storeCode = options.storeCode ?? 'AB123';
+    this.orderUuidGen = options.orderUuidGen ?? defaultOrderUuidGen;
     this.tx = options.startTx ?? 1;
     this.basket = new Basket({ taxRateBps: this.taxRateBps });
   }
@@ -111,6 +140,25 @@ export class RegisterSession {
    */
   private get isTopaz(): boolean {
     return this.registerType === 'verifone-topaz';
+  }
+
+  /**
+   * LOA mode — the player is embedded as an iframe and driven over postMessage
+   * with a full NGRP order document per change (not the incremental POS wire).
+   */
+  private get isLoa(): boolean {
+    return this.registerType === 'loa-player';
+  }
+
+  /** Build the single `loa`-channel message: the NGRP document for the current basket. */
+  private loaMessage(status: NgrpStatus): WireMessage {
+    const doc = buildOrderDoc(this.snapshot(), {
+      uuid: this.orderUuid,
+      storeId: this.storeCode,
+      status,
+      ...(this.loaCustomer ? { customer: this.loaCustomer } : {}),
+    });
+    return { channel: 'loa', data: JSON.stringify(doc) };
   }
 
   /**
@@ -159,6 +207,8 @@ export class RegisterSession {
     this.tx += 1;
     this.started = false;
     this.suspended = false;
+    this.orderUuid = '';
+    this.loaCustomer = null;
   }
 
   /** A Bulloch `[C110]` item-add line carrying the running basket totals. */
@@ -205,6 +255,13 @@ export class RegisterSession {
   private ensureStarted(): WireMessage[] {
     if (this.started) return [];
     this.started = true;
+    if (this.isLoa) {
+      // No "basket start" document — an empty order is harmful (the player's
+      // rate limiter would keep it and drop the first item's doc). Just mint the
+      // order uuid; the first real action (addItem/loyalty) sends the document.
+      if (!this.orderUuid) this.orderUuid = this.orderUuidGen();
+      return [];
+    }
     if (this.isBulloch) {
       return [{ channel: 'pole', data: this.bulloch.newSale(this.locale) }];
     }
@@ -227,6 +284,7 @@ export class RegisterSession {
   addItem(input: AddItemInput): WireMessage[] {
     const messages = this.ensureStarted();
     const li = this.basket.addItem(input);
+    if (this.isLoa) return [this.loaMessage('OPEN')];
     if (this.isBulloch) {
       messages.push(this.bullochItemMessage(li.code, li.description, li.quantity, li.unitPriceCents));
       return messages;
@@ -262,6 +320,14 @@ export class RegisterSession {
   }
 
   voidLine(lineNumber: number): WireMessage[] {
+    if (this.isLoa) {
+      this.basket.voidItem(lineNumber);
+      // Parity with the reference emulator: voiding the last live line cancels
+      // the basket (EmulatorUtils.checkIfAllItemsVoided).
+      const lines = this.basket.lineItems();
+      const allVoided = lines.length > 0 && lines.every((li) => li.voided);
+      return [this.loaMessage(allVoided ? 'CANCELED' : 'OPEN')];
+    }
     if (this.isBulloch) {
       const description = this.basket.find(lineNumber)?.description ?? '';
       this.basket.voidItem(lineNumber);
@@ -297,6 +363,7 @@ export class RegisterSession {
     const oldUnitPriceCents = li?.unitPriceCents ?? 0;
     this.basket.setQuantity(lineNumber, quantity);
     const updated = this.basket.find(lineNumber);
+    if (this.isLoa) return [this.loaMessage('OPEN')];
     if (this.isTopaz) {
       // Verifone has no qty-change journal event — the register voids the old
       // line and re-rings it at the new quantity.
@@ -336,6 +403,7 @@ export class RegisterSession {
     const oldQuantity = before?.quantity ?? 1;
     this.basket.setPrice(lineNumber, priceCents);
     const updated = this.basket.find(lineNumber);
+    if (this.isLoa) return [this.loaMessage('OPEN')];
     if (this.isTopaz) {
       // No price-override journal event on Verifone either — void + re-ring.
       return [
@@ -367,6 +435,11 @@ export class RegisterSession {
    */
   voidTicket(): WireMessage[] {
     const messages = this.ensureStarted();
+    if (this.isLoa) {
+      const msg = this.loaMessage('CANCELED');
+      this.resetForNextSale();
+      return [msg];
+    }
     if (this.isBulloch) {
       messages.push({ channel: 'pole', data: this.bulloch.clearSale() });
       this.resetForNextSale();
@@ -404,6 +477,11 @@ export class RegisterSession {
   loyalty(cardNumber: string, cardId?: string): WireMessage[] {
     if (this.isBulloch) return [];
     const messages = this.ensureStarted();
+    if (this.isLoa) {
+      // Attach a signed-in customer (real 4-field shape) and resend the doc.
+      this.loaCustomer = { brierleyId: '', mobileNumber: '', oktaId: '', loyaltyCard: cardNumber };
+      return [this.loaMessage('OPEN')];
+    }
     if (this.isTopaz) {
       // Topaz loyalty is a plaintext LOYALTY journal line (no EventId 1024).
       messages.push({ channel: 'vj', data: this.topaz.loyalty(cardNumber) });
@@ -444,6 +522,13 @@ export class RegisterSession {
    */
   tender(kind: TenderKind, amountCents?: number): WireMessage[] {
     const messages = this.ensureStarted();
+    if (this.isLoa) {
+      // LOA has no cash/tender math on the wire — the order simply closes as
+      // TENDERED and the lane resets for the next sale.
+      const msg = this.loaMessage('TENDERED');
+      this.resetForNextSale();
+      return [msg];
+    }
     const exactTotal = this.basket.totalCents();
     // US cash has no nickel rounding — the due total stays the exact total.
     const dueTotal = this.cashRounding ? this.basket.roundCashTotal() : exactTotal;
