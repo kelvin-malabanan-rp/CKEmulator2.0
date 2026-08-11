@@ -521,12 +521,24 @@ export function useEmulator(): {
       return;
     }
     logSys(`Downloading pricebook for ${globalInit.playerCode} (tenant ${globalInit.tenant})…`);
-    const result = await window.emulator.downloadPricebook({
-      pricebookUrl,
-      playerCode: globalInit.playerCode,
-      playerKey: globalInit.playerKey || playerConfig.playerKey,
-      locationCode: globalInit.locationCode,
-    });
+    let result: PricebookLoadResult;
+    try {
+      result = await window.emulator.downloadPricebook({
+        pricebookUrl,
+        playerCode: globalInit.playerCode,
+        playerKey: globalInit.playerKey || playerConfig.playerKey,
+        locationCode: globalInit.locationCode,
+      });
+    } catch (err) {
+      // e.g. the main process predates this IPC handler — restart `npm run dev`.
+      result = {
+        ok: false,
+        count: 0,
+        entries: [],
+        path: pricebookUrl,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
     setPricebookStatus(result);
     if (result.ok) {
       setPricebookEntries(result.entries);
