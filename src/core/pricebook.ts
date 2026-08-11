@@ -76,6 +76,54 @@ export function parsePricebook(xml: string): PricebookEntry[] {
   return entries;
 }
 
+/** Like firstTag but tolerates attributes on the opening tag (`<Tag attr=…>`). */
+function firstTagLoose(xml: string, tag: string): string | null {
+  const m = new RegExp(`<${tag}\\b[^>]*>(.*?)</${tag}>`, 's').exec(xml);
+  return m ? m[1].trim() : null;
+}
+
+/**
+ * Parse a PDI / NAXML pricebook (`<NAXML-MaintenanceRequest>` →
+ * `ItemMaintenance/ITTDetail`) into the same flat entries — the dialect US and CA
+ * tenants serve (VendorName=PDI). This is a LIGHT extraction: per item we take the
+ * POS code, description and regular sell price (dollars → cents); it deliberately
+ * skips the combo/list/promo machinery a full player pricebook build does. The POS
+ * code is the scannable code, so it doubles as the barcode.
+ *
+ * Field mapping mirrors loa-player's PricebookWorker: `ItemCode.POSCode`,
+ * `ITTData.Description`, `ITTData.RegularSellPrice`.
+ */
+export function parsePdiPricebook(xml: string): PricebookEntry[] {
+  const entries: PricebookEntry[] = [];
+  const re = /<ITTDetail\b[^>]*>(.*?)<\/ITTDetail>/gs;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(xml)) !== null) {
+    const body = m[1];
+    const posCode = firstTagLoose(body, 'POSCode') ?? '';
+    if (!posCode) continue;
+    const description =
+      firstTagLoose(body, 'Description') || firstTagLoose(body, 'ngrp_ShortDescription') || posCode;
+    const priceRaw = firstTagLoose(body, 'RegularSellPrice');
+    const priceCents =
+      priceRaw !== null && /^-?\d+(\.\d+)?$/.test(priceRaw) ? Math.round(parseFloat(priceRaw) * 100) : 0;
+    entries.push({ plu: posCode, description, priceCents, barcodes: [posCode] });
+  }
+  return entries;
+}
+
+/**
+ * Parse a pricebook XML of unknown dialect: PDI/NAXML (US/CA — the format a real
+ * `pricebook.url` serves) or the legacy OCT2000-IMPORT (`<DRY>`, our bundled
+ * sample). Dispatches on the root/element markers. JDE and Octane dialects are
+ * not handled yet — see the multi-tenant note; they'd slot in here.
+ */
+export function parsePricebookXml(xml: string): PricebookEntry[] {
+  if (/<NAXML-MaintenanceRequest\b/i.test(xml) || /<ITTDetail\b/i.test(xml)) {
+    return parsePdiPricebook(xml);
+  }
+  return parsePricebook(xml);
+}
+
 /**
  * Build a lookup index keyed by every barcode AND the PLU number, so a scan of
  * either resolves the item (mirrors legacy emulator item lookup by name/code).

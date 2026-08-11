@@ -186,6 +186,13 @@ export interface EmulatorBridge {
   onInject(cb: (cmd: InjectCommand) => void): () => void;
   /** Load the pricebook matching the player code from a local directory. Empty dir uses the bundled sample. */
   loadPricebook(req: { dir?: string; playerCode: string }): Promise<PricebookLoadResult>;
+  /** Download + parse the live pricebook for the registered player (PDI/NAXML or OCT2000). */
+  downloadPricebook(req: {
+    pricebookUrl: string;
+    playerCode: string;
+    playerKey: string;
+    locationCode: string;
+  }): Promise<PricebookLoadResult>;
   /** Register the player.key against the datacenters and return the generated config. */
   registerPlayer(req: { playerKey: string; product?: string }): Promise<GlobalInitResult>;
   /** Load the persisted player.key file (generated config) saved by a prior registration. */

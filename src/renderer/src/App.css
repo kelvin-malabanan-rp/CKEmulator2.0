@@ -117,6 +117,7 @@ h3 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing
 .hint { font-size: 11px; color: var(--text-muted); line-height: 1.35; margin: 0; }
 .hint code { background: var(--control-bg); padding: 1px 4px; border-radius: var(--r-chip); color: var(--text); font-family: var(--font-mono); }
 .initerr { color: var(--danger); font-size: 12px; }
+.pbstatus { color: var(--success); font-size: 12px; }
 
 .dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; display: inline-block; }
 .dot.idle { background: var(--text-muted); }

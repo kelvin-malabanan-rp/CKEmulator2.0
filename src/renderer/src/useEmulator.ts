@@ -21,7 +21,7 @@ import {
   type QuickKeyItem,
   type PricebookLoadResult,
 } from '../../core/pricebook';
-import type { GlobalInitConfig } from '../../core/globalInit';
+import { resolvePricebookUrl, type GlobalInitConfig } from '../../core/globalInit';
 import { quickKeyColor, type QuickKeyColor, type QuickKeyEntry, type QuickKeyFile } from '../../core/quickkeys';
 import {
   extractTriggersCompleters,
@@ -101,6 +101,8 @@ export function useEmulator(): {
   setPricebookDir: (dir: string) => void;
   pricebookStatus: PricebookLoadResult | null;
   loadPricebook: () => Promise<void>;
+  /** Download the live pricebook for the registered player into the item grid. */
+  downloadPricebook: () => Promise<void>;
   addItem: (item: PricebookItem) => void;
   addCustom: (input: { code: string; description: string; priceCents: number; quantity: number }) => void;
   scan: (code: string, description?: string, priceCents?: number) => void;
@@ -504,6 +506,36 @@ export function useEmulator(): {
     );
   }, [pricebookDir, playerConfig.playerCode, logSys]);
 
+  // Download the live pricebook for the registered player and feed it to the item
+  // grid. Resolves pricebook.url from the GlobalInit config (deriving it from the
+  // init origin when absent); the main process fetches + parses (PDI/NAXML or
+  // OCT2000). Requires a registered player (globalInit).
+  const downloadPricebook = useCallback(async () => {
+    if (!globalInit) {
+      logSys('Register the player first, then download its pricebook.');
+      return;
+    }
+    const pricebookUrl = resolvePricebookUrl(globalInit.endpoints, globalInit.tenant);
+    if (!pricebookUrl) {
+      logSys('No pricebook URL available for this player (missing pricebook.url / init.url).');
+      return;
+    }
+    logSys(`Downloading pricebook for ${globalInit.playerCode} (tenant ${globalInit.tenant})…`);
+    const result = await window.emulator.downloadPricebook({
+      pricebookUrl,
+      playerCode: globalInit.playerCode,
+      playerKey: globalInit.playerKey || playerConfig.playerKey,
+      locationCode: globalInit.locationCode,
+    });
+    setPricebookStatus(result);
+    if (result.ok) {
+      setPricebookEntries(result.entries);
+      logSys(`Pricebook downloaded: ${result.count} items`);
+    } else {
+      logSys(`Pricebook download failed: ${result.error}`);
+    }
+  }, [globalInit, playerConfig.playerKey, logSys]);
+
   // Auto-load the pricebook once on mount so item descriptions/prices and
   // quick-key colors resolve out-of-the-box from the bundled sample.
   const pricebookLoadedRef = useRef(false);
@@ -592,6 +624,7 @@ export function useEmulator(): {
       setPricebookDir,
       pricebookStatus,
       loadPricebook,
+      downloadPricebook,
       addItem: (item: PricebookItem) => dispatch(session.addItem(item)),
       addCustom: (input: { code: string; description: string; priceCents: number; quantity: number }) =>
         dispatch(session.addItem(input)),
@@ -643,6 +676,7 @@ export function useEmulator(): {
       setPricebookDir,
       pricebookStatus,
       loadPricebook,
+      downloadPricebook,
       pricebookIndex,
       registerPlayer,
       globalInit,

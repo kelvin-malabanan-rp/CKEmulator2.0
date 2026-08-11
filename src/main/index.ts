@@ -7,7 +7,8 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 import { PosTransport } from './PosTransport';
 import type { Channel, Status } from './PosTransport';
 import type { PosConfig } from '../core/posTypes';
-import { parsePricebook, resolvePricebookFilename, resolvePricebookDir } from '../core/pricebook';
+import { gunzipSync, inflateSync } from 'zlib';
+import { parsePricebook, parsePricebookXml, resolvePricebookFilename, resolvePricebookDir } from '../core/pricebook';
 import type { PricebookLoadResult } from '../core/pricebook';
 import { parseQuickKeys, orderQuickKeyFiles, resolveQuickKeyDir } from '../core/quickkeys';
 import type { QuickKeyFile, QuickKeyLoadResult } from '../core/quickkeys';
@@ -78,6 +79,10 @@ const bundledQuickKeyDir = (): string => bundledResourceDir('quickkey');
 const bundledPricebookDir = (): string => bundledResourceDir('pricebook');
 
 let transport: PosTransport | null = null;
+
+/** Browser User-Agent for the pricebook fetch (the portal 403s the Electron UA). */
+const PRICEBOOK_DOWNLOAD_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 /** Absolute path of the persisted generated config (the legacy `player.key` file). */
 function playerKeyFilePath(): string {
@@ -164,6 +169,67 @@ function registerEmulatorIpc(getWindow: () => BrowserWindow | null): void {
           path: dir,
           error: err instanceof Error ? err.message : String(err),
         };
+      }
+    },
+  );
+
+  // Download the live pricebook for the registered playerKey and parse it. Mirrors
+  // the reference emulator / LiftProxy.fetchPricebook: query-param auth
+  // (playerCode/playerKey/locationCode), a browser User-Agent, and a gzip body
+  // unless the URL ends in .xml. The dialect (PDI/NAXML for US·CA, or OCT2000) is
+  // auto-detected by parsePricebookXml. The raw XML is cached under userData so it
+  // survives a restart. LOA embeds a real player that downloads its own pricebook;
+  // this is for the TCP register modes (and to seed the item grid for any tenant).
+  ipcMain.handle(
+    'pricebook:download',
+    async (
+      _evt,
+      req: { pricebookUrl: string; playerCode: string; playerKey: string; locationCode: string },
+    ): Promise<PricebookLoadResult> => {
+      const { pricebookUrl, playerCode, playerKey, locationCode } = req;
+      if (!pricebookUrl) {
+        return { ok: false, count: 0, entries: [], path: '', error: 'No pricebook URL — register the player first.' };
+      }
+      const url =
+        `${pricebookUrl}?playerCode=${encodeURIComponent(playerCode)}` +
+        `&playerKey=${encodeURIComponent(playerKey)}&locationCode=${encodeURIComponent(locationCode)}`;
+      console.log(`[Pricebook] Downloading for ${playerCode} (location=${locationCode}) ← ${pricebookUrl}`);
+      try {
+        const res = await fetch(url, { headers: { 'User-Agent': PRICEBOOK_DOWNLOAD_UA } });
+        console.log(`[Pricebook]   HTTP ${res.status}`);
+        if (!res.ok) {
+          return { ok: false, count: 0, entries: [], path: pricebookUrl, error: `HTTP ${res.status} from pricebook.url` };
+        }
+        let xml: string;
+        if (pricebookUrl.toLowerCase().endsWith('.xml')) {
+          xml = await res.text();
+        } else {
+          // The body is gzip-compressed unless it's an .xml URL (matches the real
+          // player); fall back to raw inflate, then plain text, before giving up.
+          const buf = Buffer.from(await res.arrayBuffer());
+          try {
+            xml = gunzipSync(buf).toString('utf-8');
+          } catch {
+            try {
+              xml = inflateSync(buf).toString('utf-8');
+            } catch {
+              xml = buf.toString('utf-8');
+            }
+          }
+        }
+        const entries = parsePricebookXml(xml);
+        console.log(`[Pricebook]   parsed ${entries.length} items`);
+        try {
+          await writeFile(join(app.getPath('userData'), `pricebook-${playerCode}.xml`), xml, 'utf-8');
+        } catch (writeErr) {
+          console.warn('[Pricebook] Failed to cache downloaded pricebook:', writeErr);
+        }
+        if (entries.length === 0) {
+          return { ok: false, count: 0, entries: [], path: pricebookUrl, error: 'Downloaded pricebook parsed to 0 items (unsupported dialect?).' };
+        }
+        return { ok: true, count: entries.length, entries, path: pricebookUrl };
+      } catch (err) {
+        return { ok: false, count: 0, entries: [], path: pricebookUrl, error: err instanceof Error ? err.message : String(err) };
       }
     },
   );

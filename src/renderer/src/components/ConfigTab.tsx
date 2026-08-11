@@ -93,9 +93,29 @@ export function ConfigTab({ e }: { e: ReturnType<typeof useEmulator> }): JSX.Ele
         <button className="cfgregister" onClick={() => void e.registerPlayer()} title="Resolve the datacenter, player code & backend from the player.key">
           Register
         </button>
+
+        <button
+          className="cfgregister"
+          disabled={!e.globalInit}
+          onClick={() => void e.downloadPricebook()}
+          title={
+            e.globalInit
+              ? 'Download this player’s live pricebook and load it into the item grid'
+              : 'Register the player first'
+          }
+        >
+          Download pricebook
+        </button>
       </div>
 
       {e.globalInitError && <div className="initerr">Register failed: {e.globalInitError}</div>}
+      {e.pricebookStatus && (
+        <div className={e.pricebookStatus.ok ? 'pbstatus' : 'initerr'}>
+          {e.pricebookStatus.ok
+            ? `Pricebook: ${e.pricebookStatus.count} items loaded`
+            : `Pricebook: ${e.pricebookStatus.error}`}
+        </div>
+      )}
 
       {gi && (
         <div className="cfgdump">

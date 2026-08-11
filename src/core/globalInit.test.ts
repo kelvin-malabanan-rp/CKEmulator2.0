@@ -6,6 +6,7 @@ import {
   extractEndpoints,
   toGlobalInitConfig,
   resolveTenantUrl,
+  resolvePricebookUrl,
   findDatacenterName,
   configFromPlayerKeyFile,
   PLAYER_KEY_FILENAME,
@@ -109,5 +110,21 @@ describe('resolveTenantUrl', () => {
   it('replaces {tenantCode} tokens', () => {
     expect(resolveTenantUrl('https://x/api/lift/{tenantCode}/manifests', 'ca')).toBe('https://x/api/lift/ca/manifests');
     expect(resolveTenantUrl('.../tenant_{tenantCode}_master.zip', 'ca')).toBe('.../tenant_ca_master.zip');
+  });
+});
+
+describe('resolvePricebookUrl', () => {
+  it('uses a configured pricebook.url (tenant-substituted)', () => {
+    const endpoints = { 'pricebook.url': 'https://player.e2e.circlekliftdev.com/api/lift/{tenantCode}/pricebook', 'init.url': 'https://player.e2e.circlekliftdev.com/api/lift/system/services/init' };
+    expect(resolvePricebookUrl(endpoints, 'us')).toBe('https://player.e2e.circlekliftdev.com/api/lift/us/pricebook');
+  });
+
+  it('derives from the init origin + tenant when pricebook.url is absent', () => {
+    const endpoints = { 'pricebook.url': '', 'init.url': 'https://player.e2e.circlekliftdev.com/api/lift/system/services/init' };
+    expect(resolvePricebookUrl(endpoints, 'us')).toBe('https://player.e2e.circlekliftdev.com/api/lift/us/pricebook');
+  });
+
+  it('returns empty when neither pricebook.url nor init.url is available', () => {
+    expect(resolvePricebookUrl({}, 'us')).toBe('');
   });
 });
