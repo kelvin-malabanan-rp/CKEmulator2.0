@@ -83,6 +83,10 @@ let transport: PosTransport | null = null;
 /** Browser User-Agent for the pricebook fetch (the portal 403s the Electron UA). */
 const PRICEBOOK_DOWNLOAD_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+/** A real pricebook can be tens of MB, so allow a generous window before aborting. */
+const PRICEBOOK_DOWNLOAD_TIMEOUT_MS = 60000;
+/** Reject bodies whose declared Content-Length is absurd, before buffering them. */
+const PRICEBOOK_MAX_BYTES = 250 * 1024 * 1024;
 
 /** Absolute path of the persisted generated config (the legacy `player.key` file). */
 function playerKeyFilePath(): string {
@@ -215,11 +219,25 @@ function registerEmulatorIpc(getWindow: () => BrowserWindow | null): void {
         `${pricebookUrl}?playerCode=${encodeURIComponent(playerCode)}` +
         `&playerKey=${encodeURIComponent(playerKey)}&locationCode=${encodeURIComponent(locationCode)}`;
       console.log(`[Pricebook] Downloading for ${playerCode} (location=${locationCode}) ← ${pricebookUrl}`);
+      // Bound the request: a hung portal must not leave the UI stuck "Downloading…"
+      // forever, and an absurd body must not be buffered into memory unbounded.
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), PRICEBOOK_DOWNLOAD_TIMEOUT_MS);
       try {
-        const res = await fetch(url, { headers: { 'User-Agent': PRICEBOOK_DOWNLOAD_UA } });
+        const res = await fetch(url, { headers: { 'User-Agent': PRICEBOOK_DOWNLOAD_UA }, signal: controller.signal });
         console.log(`[Pricebook]   HTTP ${res.status}`);
         if (!res.ok) {
           return { ok: false, count: 0, entries: [], path: pricebookUrl, error: `HTTP ${res.status} from pricebook.url` };
+        }
+        const declared = Number(res.headers.get('content-length') ?? '');
+        if (Number.isFinite(declared) && declared > PRICEBOOK_MAX_BYTES) {
+          return {
+            ok: false,
+            count: 0,
+            entries: [],
+            path: pricebookUrl,
+            error: `Pricebook too large (${Math.round(declared / 1e6)} MB > ${Math.round(PRICEBOOK_MAX_BYTES / 1e6)} MB cap).`,
+          };
         }
         let xml: string;
         if (pricebookUrl.toLowerCase().endsWith('.xml')) {
@@ -250,7 +268,15 @@ function registerEmulatorIpc(getWindow: () => BrowserWindow | null): void {
         }
         return { ok: true, count: entries.length, entries, path: pricebookUrl };
       } catch (err) {
-        return { ok: false, count: 0, entries: [], path: pricebookUrl, error: err instanceof Error ? err.message : String(err) };
+        const aborted = err instanceof Error && err.name === 'AbortError';
+        const error = aborted
+          ? `Pricebook download timed out after ${PRICEBOOK_DOWNLOAD_TIMEOUT_MS / 1000}s.`
+          : err instanceof Error
+            ? err.message
+            : String(err);
+        return { ok: false, count: 0, entries: [], path: pricebookUrl, error };
+      } finally {
+        clearTimeout(timer);
       }
     },
   );

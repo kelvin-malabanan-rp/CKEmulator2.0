@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import { formatCurrency, type PosLocale } from '../../../core/currency';
-import { paginate } from '../../../core/quickkeys';
 import { usePersistedState } from '../usePersistedState';
 import { QK_PINS_KEY, DEFAULT_QK_PINS, parsePins, serializePins } from '../uiSettings';
 import { filterQuickKeys, sortPinned, togglePin } from '../quickKeyFilter';
@@ -47,9 +46,14 @@ export function QuickKeys({
     () => (searching ? sortPinned(filterQuickKeys(entries, query), pinnedSet) : sorted),
     [searching, entries, query, pinnedSet, sorted],
   );
-  const pages = useMemo(() => paginate(results, QK_PER_PAGE), [results]);
-  const safePage = Math.min(page, pages.length - 1);
-  const current = pages[safePage] ?? [];
+  // Slice only the visible page — never materialize all pages. A 14k-item
+  // pricebook would otherwise build ~1,555 arrays on every keystroke/pin toggle.
+  const pageCount = Math.max(1, Math.ceil(results.length / QK_PER_PAGE));
+  const safePage = Math.min(page, pageCount - 1);
+  const current = useMemo(
+    () => results.slice(safePage * QK_PER_PAGE, safePage * QK_PER_PAGE + QK_PER_PAGE),
+    [results, safePage],
+  );
 
   // Reset to the first page when the query or the active file changes.
   useEffect(() => setPage(0), [query, tab]);
@@ -120,15 +124,15 @@ export function QuickKeys({
         )}
       </div>
 
-      {pages.length > 1 && (
+      {pageCount > 1 && (
         <div className="qkpager">
           <button disabled={safePage === 0} onClick={() => setPage(safePage - 1)}>
             ‹
           </button>
           <span>
-            {safePage + 1}/{pages.length}
+            {safePage + 1}/{pageCount}
           </span>
-          <button disabled={safePage >= pages.length - 1} onClick={() => setPage(safePage + 1)}>
+          <button disabled={safePage >= pageCount - 1} onClick={() => setPage(safePage + 1)}>
             ›
           </button>
         </div>

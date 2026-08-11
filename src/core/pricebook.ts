@@ -43,8 +43,20 @@ export interface PricebookLoadResult {
   fromDownloadCache?: boolean;
 }
 
+// Per-tag regexes are compiled once and reused. firstTag/firstTagLoose run ~3-4x
+// per item, so on a ~14k-item pricebook a fresh `new RegExp` per call would be
+// ~50k compilations. The regexes carry no `g`/`y` flag, so `.exec` ignores
+// lastIndex and reuse across inputs is safe.
+const strictTagRe = new Map<string, RegExp>();
+const looseTagRe = new Map<string, RegExp>();
+
 function firstTag(xml: string, tag: string): string | null {
-  const m = new RegExp(`<${tag}>(.*?)</${tag}>`, 's').exec(xml);
+  let re = strictTagRe.get(tag);
+  if (!re) {
+    re = new RegExp(`<${tag}>(.*?)</${tag}>`, 's');
+    strictTagRe.set(tag, re);
+  }
+  const m = re.exec(xml);
   return m ? m[1].trim() : null;
 }
 
@@ -80,7 +92,12 @@ export function parsePricebook(xml: string): PricebookEntry[] {
 
 /** Like firstTag but tolerates attributes on the opening tag (`<Tag attr=…>`). */
 function firstTagLoose(xml: string, tag: string): string | null {
-  const m = new RegExp(`<${tag}\\b[^>]*>(.*?)</${tag}>`, 's').exec(xml);
+  let re = looseTagRe.get(tag);
+  if (!re) {
+    re = new RegExp(`<${tag}\\b[^>]*>(.*?)</${tag}>`, 's');
+    looseTagRe.set(tag, re);
+  }
+  const m = re.exec(xml);
   return m ? m[1].trim() : null;
 }
 
