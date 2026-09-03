@@ -7,9 +7,11 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 import { PosTransport } from './PosTransport';
 import type { Channel, Status } from './PosTransport';
 import type { PosConfig } from '../core/posTypes';
-import { gunzipSync, inflateSync } from 'zlib';
+import { gunzipSync, inflateSync, inflateRawSync } from 'zlib';
 import { parsePricebookXml, resolvePricebookFilename, resolvePricebookDir } from '../core/pricebook';
 import type { PricebookLoadResult } from '../core/pricebook';
+import { buildSettingGroupsUrl, extractLoaSettings, settingsDateStamp } from '../core/settingGroups';
+import type { SettingsFetchResult } from '../core/settingGroups';
 import { parseQuickKeys, orderQuickKeyFiles, resolveQuickKeyDir } from '../core/quickkeys';
 import type { QuickKeyFile, QuickKeyLoadResult } from '../core/quickkeys';
 import { DATACENTERS, toGlobalInitConfig, configFromPlayerKeyFile, PLAYER_KEY_FILENAME, extractLocationCode } from '../core/globalInit';
@@ -243,8 +245,11 @@ function registerEmulatorIpc(getWindow: () => BrowserWindow | null): void {
         if (pricebookUrl.toLowerCase().endsWith('.xml')) {
           xml = await res.text();
         } else {
-          // The body is gzip-compressed unless it's an .xml URL (matches the real
-          // player); fall back to raw inflate, then plain text, before giving up.
+          // The body is compressed unless it's an .xml URL (matches the real
+          // player). loa-player uses pako.inflate, which auto-detects gzip, zlib
+          // AND raw-deflate streams — so mirror all three (gzip → zlib → raw)
+          // before falling back to plain text, or a raw-deflate pricebook would
+          // decode to garbage and parse to 0 items.
           const buf = Buffer.from(await res.arrayBuffer());
           try {
             xml = gunzipSync(buf).toString('utf-8');
@@ -252,7 +257,11 @@ function registerEmulatorIpc(getWindow: () => BrowserWindow | null): void {
             try {
               xml = inflateSync(buf).toString('utf-8');
             } catch {
-              xml = buf.toString('utf-8');
+              try {
+                xml = inflateRawSync(buf).toString('utf-8');
+              } catch {
+                xml = buf.toString('utf-8');
+              }
             }
           }
         }
@@ -275,6 +284,56 @@ function registerEmulatorIpc(getWindow: () => BrowserWindow | null): void {
             ? err.message
             : String(err);
         return { ok: false, count: 0, entries: [], path: pricebookUrl, error };
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+  );
+
+  // Fetch the portal setting groups for the registered player and return the
+  // `loa-*` settings (prefix stripped) — chiefly the real `pricebook.url`, which
+  // GlobalInit registration does NOT carry. Mirrors loa-player
+  // LiftProxy.fetchSettingGroups (query against contentCron.baseUrl, keyed on
+  // locationCode + player creds). `contentCronBaseUrl` must be tenant-resolved.
+  ipcMain.handle(
+    'settings:fetch',
+    async (
+      _evt,
+      req: { contentCronBaseUrl: string; locationCode: string; playerCode: string; playerKey: string },
+    ): Promise<SettingsFetchResult> => {
+      const { contentCronBaseUrl, locationCode, playerCode, playerKey } = req;
+      if (!contentCronBaseUrl) {
+        return { ok: false, settings: {}, error: 'No contentCron.baseUrl — register the player first.' };
+      }
+      const url = buildSettingGroupsUrl({
+        contentCronBaseUrl,
+        locationCode,
+        playerCode,
+        playerKey,
+        today: settingsDateStamp(new Date()),
+      });
+      console.log(`[Settings] Fetching setting groups for ${playerCode} (location=${locationCode})`);
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), PRICEBOOK_DOWNLOAD_TIMEOUT_MS);
+      try {
+        const res = await fetch(url, { headers: { 'User-Agent': PRICEBOOK_DOWNLOAD_UA }, signal: controller.signal });
+        console.log(`[Settings]   HTTP ${res.status}`);
+        if (!res.ok) {
+          return { ok: false, settings: {}, error: `HTTP ${res.status} from settinggroups` };
+        }
+        const json = JSON.parse(await res.text());
+        const settings = extractLoaSettings(json);
+        const pricebookUrl = settings['pricebook.url'] ?? '';
+        console.log(`[Settings]   ${Object.keys(settings).length} loa-* settings; pricebook.url=${pricebookUrl || '(none)'}`);
+        return { ok: true, settings, pricebookUrl };
+      } catch (err) {
+        const aborted = err instanceof Error && err.name === 'AbortError';
+        const error = aborted
+          ? `Settings fetch timed out after ${PRICEBOOK_DOWNLOAD_TIMEOUT_MS / 1000}s.`
+          : err instanceof Error
+            ? err.message
+            : String(err);
+        return { ok: false, settings: {}, error };
       } finally {
         clearTimeout(timer);
       }

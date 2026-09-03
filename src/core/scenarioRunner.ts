@@ -15,7 +15,7 @@ import type { PosLocale } from './currency';
 
 /** Everything a scenario can do to the register; the UI wires these to useEmulator. */
 export interface ScenarioActions {
-  scan(code: string, description?: string, priceCents?: number): void;
+  scan(code: string, description?: string, priceCents?: number, minAge?: number): void;
   loyalty(cardNumber: string): void;
   tender(kind: TenderKind, amountCents?: number): void;
   voidLine(lineNumber: number): void;
@@ -162,7 +162,7 @@ export class ScenarioRunner {
   private async execute(step: ScenarioStep): Promise<{ status: 'ok' | 'fail'; detail?: string }> {
     switch (step.kind) {
       case 'scan':
-        this.actions.scan(step.code, step.description, step.priceCents);
+        this.actions.scan(step.code, step.description, step.priceCents, step.minAge);
         return OK;
       case 'loyalty':
         this.actions.loyalty(step.cardNumber);

@@ -43,6 +43,11 @@ export interface AddItemInput {
   description: string;
   priceCents: number;
   quantity?: number;
+  /**
+   * Minimum customer age. >0 marks the item age-restricted; carried onto the
+   * Radiant6 wire as `AgeMinimum` (1011) so the player gates age verification.
+   */
+  minAge?: number;
 }
 
 export interface LineSnapshot {
@@ -53,6 +58,8 @@ export interface LineSnapshot {
   unitPriceCents: number;
   extendedCents: number;
   voided: boolean;
+  /** Minimum customer age (>0 = age-restricted); undefined when unknown. */
+  minAge?: number;
 }
 
 export interface SessionSnapshot {
@@ -311,6 +318,7 @@ export class RegisterSession {
         priceCents: li.unitPriceCents,
         quantity: li.quantity,
         locale: this.locale,
+        ...(li.minAge !== undefined ? { minAge: li.minAge } : {}),
       }),
     });
     if (this.vjTotals) messages.push(...this.vjTotalsMessages());
@@ -614,6 +622,7 @@ export class RegisterSession {
         unitPriceCents: li.unitPriceCents,
         extendedCents: li.extendedCents(),
         voided: li.voided,
+        ...(li.minAge !== undefined ? { minAge: li.minAge } : {}),
       })),
       subtotalCents: this.basket.subtotalCents(),
       taxCents: this.basket.taxCents(),

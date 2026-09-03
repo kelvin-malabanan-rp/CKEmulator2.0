@@ -164,6 +164,13 @@ export class Radiant6CanadaEncoder {
     priceCents: number;
     quantity: number;
     locale?: PosLocale;
+    /**
+     * Item's minimum customer age. Emitted as `AgeMinimum` on the 1011 line
+     * (legacy Radiant6RegisterEmulator.java:132). >0 marks the item
+     * age-restricted, which drives the player's age-verify scan hold
+     * (Radiant6Register.checkAgeVerification). Defaults to 0 (unrestricted).
+     */
+    minAge?: number;
   }): string {
     const locale = args.locale ?? 'en';
     const extended = wireAmount(Math.round(args.priceCents * args.quantity), locale);
@@ -176,7 +183,7 @@ export class Radiant6CanadaEncoder {
       ['UnitPrice', wireAmount(args.priceCents, locale)],
       ['ExtendedPrice', extended],
       ['Quantity', args.quantity.toFixed(3)],
-      ['AgeMinimum', 0],
+      ['AgeMinimum', args.minAge ?? 0],
     ]);
   }
 

@@ -70,13 +70,28 @@ export function TransactionPanel({
             <tbody>
               {visibleLines.map((li) => (
                 <tr key={li.lineNumber}>
-                  <td>{li.description}</td>
+                  <td>
+                    {li.description}
+                    {li.minAge !== undefined && li.minAge > 0 && (
+                      <span className="agebadge" title={`Age-restricted — minimum age ${li.minAge}`}>
+                        {li.minAge}+
+                      </span>
+                    )}
+                  </td>
                   <td className="num">{li.quantity}</td>
                   <td className="num">{formatCurrency(li.extendedCents, locale)}</td>
                   <td className="lineactions">
                     <button
                       title="Add another of this item (new line)"
-                      onClick={() => e.addCustom({ code: li.code, description: li.description, priceCents: li.unitPriceCents, quantity: 1 })}
+                      onClick={() =>
+                        e.addCustom({
+                          code: li.code,
+                          description: li.description,
+                          priceCents: li.unitPriceCents,
+                          quantity: 1,
+                          ...(li.minAge !== undefined ? { minAge: li.minAge } : {}),
+                        })
+                      }
                     >
                       +1
                     </button>

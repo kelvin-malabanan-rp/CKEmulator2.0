@@ -12,6 +12,12 @@ export interface AddItemInput {
   priceCents: number;
   /** Defaults to 1. May be fractional for weighed items. */
   quantity?: number;
+  /**
+   * Minimum customer age for the item. >0 marks it age-restricted (legacy
+   * Register.isAgeRestricted: minAge > 0). Carried onto the wire as
+   * `AgeMinimum` so the player can gate age verification. Absent → unrestricted.
+   */
+  minAge?: number;
 }
 
 export interface BasketOptions {
@@ -28,6 +34,8 @@ export class LineItem {
     public description: string,
     public unitPriceCents: number,
     public quantity: number,
+    /** Minimum customer age (>0 = age-restricted); undefined when unknown. */
+    public readonly minAge?: number,
   ) {}
 
   /** Extended price = unit price × quantity, in cents. */
@@ -61,6 +69,7 @@ export class Basket {
       input.description,
       input.priceCents,
       input.quantity ?? 1,
+      input.minAge,
     );
     this.items.push(li);
     return li;

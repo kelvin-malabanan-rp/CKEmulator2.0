@@ -15,7 +15,7 @@ import type { RegisterType } from './posTypes';
 import type { AdTriggersCompleters } from './adTriggers';
 
 export type ScenarioStep =
-  | { kind: 'scan'; code: string; description?: string; priceCents?: number }
+  | { kind: 'scan'; code: string; description?: string; priceCents?: number; minAge?: number }
   | { kind: 'loyalty'; cardNumber: string }
   | { kind: 'wait'; ms: number }
   | { kind: 'waitForInject'; timeoutMs: number; expectCodes?: string[] }
@@ -140,6 +140,20 @@ export function builtinScenarios(p: ScenarioParams): Scenario[] {
       steps: [
         { kind: 'scan', code: p.itemCode },
         { kind: 'setPrice', lineNumber: 1, priceCents: 202 },
+        gap,
+        { kind: 'tender', tenderKind: 'cash-exact' },
+      ],
+    },
+    {
+      id: 'age-restricted-item',
+      name: 'Age-restricted item',
+      description:
+        'Ring an age-restricted item (AgeMinimum=21) then a normal item — watch the player hold the second scan until the first is age-verified, then release it (Radiant6Register age-verify queue).',
+      registerTypes: ['radiant6-canada', 'radiant6-us'],
+      steps: [
+        { kind: 'scan', code: p.itemCode, minAge: 21 },
+        gap,
+        { kind: 'scan', code: p.itemCode2 },
         gap,
         { kind: 'tender', tenderKind: 'cash-exact' },
       ],
@@ -308,7 +322,7 @@ export function scenarioForAd(ad: AdTriggersCompleters, p: ScenarioParams): Scen
 export function describeStep(step: ScenarioStep): string {
   switch (step.kind) {
     case 'scan':
-      return `scan ${step.code || step.description || '?'}`;
+      return `scan ${step.code || step.description || '?'}${step.minAge && step.minAge > 0 ? ` (${step.minAge}+)` : ''}`;
     case 'loyalty':
       return `loyalty ${step.cardNumber}`;
     case 'wait':

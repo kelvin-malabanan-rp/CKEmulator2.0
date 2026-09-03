@@ -7,7 +7,7 @@ function fakeActions(): ScenarioActions & { calls: string[] } {
   const calls: string[] = [];
   return {
     calls,
-    scan: (c) => calls.push(`scan:${c}`),
+    scan: (c, _d, _p, minAge) => calls.push(`scan:${c}${minAge !== undefined ? `:${minAge}+` : ''}`),
     loyalty: (n) => calls.push(`loyalty:${n}`),
     tender: (k) => calls.push(`tender:${k}`),
     voidLine: (n) => calls.push(`voidLine:${n}`),
@@ -58,6 +58,19 @@ describe('ScenarioRunner', () => {
       scenario([{ kind: 'scan', code: '', description: 'PREPAY CA #05', priceCents: 3000 }]),
     );
     expect(calls).toEqual([['', 'PREPAY CA #05', 3000]]);
+    expect(result.verdict).toBe('pass');
+  });
+
+  it('passes a scan step minAge through to the scan action (age-restricted items)', async () => {
+    const actions = fakeActions();
+    const r = new ScenarioRunner(actions);
+    const result = await r.run(
+      scenario([
+        { kind: 'scan', code: 'BEER', minAge: 21 },
+        { kind: 'scan', code: 'COKE' },
+      ]),
+    );
+    expect(actions.calls).toEqual(['scan:BEER:21+', 'scan:COKE']);
     expect(result.verdict).toBe('pass');
   });
 

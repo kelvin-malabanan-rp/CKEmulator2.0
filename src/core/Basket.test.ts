@@ -11,6 +11,14 @@ describe('Basket', () => {
     expect(b.subtotalCents()).toBe(419);
   });
 
+  it('stores minAge on the line item (undefined when unspecified)', () => {
+    const b = new Basket({ taxRateBps: 500 });
+    const beer = b.addItem({ code: 'BEER', description: 'Beer', priceCents: 899, minAge: 21 });
+    const coke = b.addItem({ code: 'COKE', description: 'Coke', priceCents: 169 });
+    expect(beer.minAge).toBe(21);
+    expect(coke.minAge).toBeUndefined();
+  });
+
   it('computes tax and total in cents (5%) and CAD cash rounding', () => {
     const b = new Basket({ taxRateBps: 500 });
     b.addItem({ code: '049000000443', description: 'Coke', priceCents: 169 });

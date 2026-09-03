@@ -179,6 +179,8 @@ function App(): JSX.Element {
               <LoaFrame
                 playerKey={e.globalInit?.playerKey || e.playerConfig.playerKey}
                 connected={e.loaConnected}
+                registerType={e.config.registerType}
+                env={e.config.loaEnv}
               />
             </section>
           )}

@@ -86,20 +86,29 @@ export function orderQuickKeyFiles(names: string[]): string[] {
   });
 }
 
-/** How a quick key should be colored, given the loaded pricebook + ad-trigger codes. */
-export type QuickKeyColor = 'normal' | 'grey' | 'green';
+/** How a quick key should be colored, given the loaded pricebook + ad-trigger + age codes. */
+export type QuickKeyColor = 'normal' | 'grey' | 'green' | 'orange' | 'dark-green';
 
 /**
- * Decide a quick key's color (legacy parity, minus age):
- *   - green  → the UPC has an ad trigger (`adCodes`)
- *   - grey   → a pricebook is loaded and the UPC isn't in it
- *   - normal → otherwise
+ * Decide a quick key's color — legacy parity (EmulatorUI.java:533-546):
+ *   - dark-green → the UPC is BOTH age-restricted AND an ad trigger (DARK_GREEN)
+ *   - orange     → the UPC is age-restricted (minAge > 0)          (ACCENT_ORANGE)
+ *   - green      → the UPC has an ad trigger                       (EMERALD_GREEN)
+ *   - grey       → a pricebook is loaded and the UPC isn't in it   (DARKER_SHADE)
+ *   - normal     → otherwise
+ *
+ * Age wins over a plain trigger (legacy checks age first), and a trigger still
+ * wins over grey (an ad trigger not yet in the pricebook stays highlighted).
  */
 export function quickKeyColor(
   upc: string,
-  opts: { pricebookLoaded: boolean; pricebookCodes: Set<string>; adCodes: Set<string> },
+  opts: { pricebookLoaded: boolean; pricebookCodes: Set<string>; adCodes: Set<string>; ageCodes: Set<string> },
 ): QuickKeyColor {
-  if (opts.adCodes.has(upc)) return 'green';
+  const age = opts.ageCodes.has(upc);
+  const trigger = opts.adCodes.has(upc);
+  if (age && trigger) return 'dark-green';
+  if (age) return 'orange';
+  if (trigger) return 'green';
   if (opts.pricebookLoaded && !opts.pricebookCodes.has(upc)) return 'grey';
   return 'normal';
 }

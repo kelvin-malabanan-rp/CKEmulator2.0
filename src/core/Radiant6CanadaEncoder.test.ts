@@ -62,6 +62,13 @@ describe('Radiant6CanadaEncoder — item lifecycle VJ events', () => {
     expect(line).toContain('ItemType=Regular Sales Item');
   });
 
+  it('itemAdd (1011) emits AgeMinimum from minAge, defaulting to 0', () => {
+    const base = { tx: 1, lineNumber: 1, barcode: 'x', description: 'X', priceCents: 100, quantity: 1 };
+    expect(enc().itemAdd(base)).toContain('AgeMinimum=0');
+    expect(enc().itemAdd({ ...base, minAge: 21 })).toContain('AgeMinimum=21');
+    expect(enc().itemAdd({ ...base, minAge: 0 })).toContain('AgeMinimum=0');
+  });
+
   it('itemVoid (1012), priceOverride (1013), qtyChange (1014)', () => {
     expect(enc().itemVoid({ tx: 1, lineNumber: 2 })).toContain('EventId=1012,TerminalNumber=1');
     expect(enc().itemVoid({ tx: 1, lineNumber: 2 })).toContain('ItemNumber=2');

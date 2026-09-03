@@ -1,17 +1,26 @@
 import { useEffect, useRef } from 'react';
-import { LOA_PLAYER_ENTRY_URL, loaEntryUrl } from '../../../core/posTypes';
+import {
+  loaEntryUrl,
+  loaEntryUrlForTarget,
+  LOA_ENV_LABELS,
+  REGISTER_TYPES,
+  type LoaEnv,
+  type RegisterType,
+} from '../../../core/posTypes';
 import { loaTransport } from '../loaTransport';
 
 /**
- * Embeds the real loa-player as a cross-origin iframe (LOA mode) and registers
- * it with `loaTransport`, which drives it over postMessage. The player must be
- * running on its own dev server (`npm run serve:player`, :9000); until then the
- * frame shows the browser's connection error, which is the honest state.
+ * Embeds the selected LOA player build as a cross-origin iframe (LOA mode) and
+ * registers it with `loaTransport`, which drives it over postMessage. Which build
+ * is embedded comes from the register type (which LOA player) plus `env` (which
+ * deployment of it) — see LOA_TARGETS. Until it is reachable the frame shows the
+ * browser's connection error, which is the honest state.
  *
  * The `playerKey` is passed in the URL hash (`#playerKey=…`) — the player reads
  * it from `window.location.hash` to boot as that registered player (resolving
  * its tenant, settings and Mashgin station). Without it the player falls back to
- * a default config and never consumes the order documents we send.
+ * whatever the target URL pins (hosted builds) or to a default config, in which
+ * case it never consumes the order documents we send.
  *
  * The iframe is mounted only while `connected` (Connect) so Disconnect→Connect
  * fully tears it down and re-creates it — a clean re-boot that retries the
@@ -21,15 +30,19 @@ import { loaTransport } from '../loaTransport';
 export function LoaFrame({
   playerKey,
   connected,
-  baseUrl = LOA_PLAYER_ENTRY_URL,
+  registerType,
+  env,
 }: {
   playerKey?: string;
   connected: boolean;
-  baseUrl?: string;
+  registerType: RegisterType;
+  env: LoaEnv;
 }): JSX.Element {
   const ref = useRef<HTMLIFrameElement>(null);
   const key = (playerKey ?? '').trim();
-  const entryUrl = loaEntryUrl(key, baseUrl);
+  const entryUrl = loaEntryUrl(key, loaEntryUrlForTarget(registerType, env));
+  const playerLabel = REGISTER_TYPES.find((r) => r.value === registerType)?.label ?? registerType;
+  const title = `${playerLabel} — ${LOA_ENV_LABELS[env]}`;
 
   useEffect(() => {
     if (!connected) {
@@ -40,11 +53,13 @@ export function LoaFrame({
     return () => loaTransport.setFrame(null, entryUrl);
   }, [entryUrl, connected]);
 
-  if (!key) {
+  // A target whose URL pins its own `#playerKey=` boots without one configured,
+  // so only prompt for a key when the resolved URL carries none at all.
+  if (!entryUrl.includes('#playerKey=')) {
     return (
       <div className="loaframe">
         <div className="loaframehead">
-          <span className="loaframetitle">loa-player</span>
+          <span className="loaframetitle">{title}</span>
         </div>
         <div className="loaframeempty">Enter a player key in Config to boot the embedded player.</div>
       </div>
@@ -55,7 +70,7 @@ export function LoaFrame({
     return (
       <div className="loaframe">
         <div className="loaframehead">
-          <span className="loaframetitle">loa-player</span>
+          <span className="loaframetitle">{title}</span>
         </div>
         <div className="loaframeempty">Not connected — click Connect to load the player.</div>
       </div>
@@ -65,7 +80,7 @@ export function LoaFrame({
   return (
     <div className="loaframe">
       <div className="loaframehead">
-        <span className="loaframetitle">loa-player</span>
+        <span className="loaframetitle">{title}</span>
         <span className="loaframeurl mono">{entryUrl}</span>
       </div>
       {/*
@@ -76,7 +91,7 @@ export function LoaFrame({
       <iframe
         ref={ref}
         className="loaframeframe"
-        title="loa-player"
+        title={title}
         src={entryUrl}
         referrerPolicy="origin"
       />

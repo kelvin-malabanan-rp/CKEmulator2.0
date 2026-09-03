@@ -265,8 +265,18 @@ h3 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing
 /* Price pinned to the bottom-right (margin-top:auto pushes it down past the name). */
 .keyprice { font-family: var(--font-mono); font-size: 13px; color: var(--text); flex-shrink: 0; margin-top: auto; align-self: flex-end; }
 .key.green { background: color-mix(in srgb, var(--success) 20%, var(--card-bg)); border-color: color-mix(in srgb, var(--success) 45%, var(--border)); }
+/* Age-restricted (legacy ACCENT_ORANGE #994500) and age-restricted + ad trigger
+   (legacy DARK_GREEN #09392C) — tinted onto the card so it reads in both themes. */
+.key.orange { background: color-mix(in srgb, #cc6a14 26%, var(--card-bg)); border-color: color-mix(in srgb, #cc6a14 55%, var(--border)); }
+.key.dark-green { background: color-mix(in srgb, #0b6b4f 26%, var(--card-bg)); border-color: color-mix(in srgb, #0b6b4f 55%, var(--border)); }
 .key.grey { background: var(--card-bg); color: var(--text-muted); }
 .key.grey .keyprice { color: var(--text-muted); }
+.qklegend { display: flex; flex-wrap: wrap; gap: 12px; padding: 4px 2px 8px; font-size: 11px; color: var(--text-muted); }
+.qklegend span { display: inline-flex; align-items: center; gap: 5px; }
+.qklegend .sw { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+.qklegend .sw.orange { background: #cc6a14; }
+.qklegend .sw.green { background: var(--success); }
+.qklegend .sw.dark-green { background: #0b6b4f; }
 /* Favorited: solid accent fill (not a tint) with a filled accent-ink star. */
 .key.pinned { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
 .key.pinned .keyplu, .key.pinned .keyprice { color: var(--accent-text); }
@@ -303,6 +313,7 @@ h3 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing
 .lineactions button:hover { background: var(--control-hover); }
 .lineactions .linevoid { color: var(--danger); border-color: var(--danger-border); }
 .lineactions .linevoid:hover { background: color-mix(in srgb, var(--danger) 15%, var(--card-bg)); }
+.agebadge { display: inline-block; margin-left: 8px; padding: 1px 6px; font-size: 11px; font-weight: 700; font-family: var(--font-mono); color: var(--danger-text); background: var(--danger); border-radius: var(--r-ctrl); vertical-align: middle; }
 
 .totals { flex: 0 0 auto; margin-top: 12px; border-top: 1px solid var(--border); padding-top: 10px; }
 .totals div { display: flex; justify-content: space-between; align-items: baseline; padding: 3px 0; color: var(--text-muted); font-size: 13px; }
@@ -484,13 +495,23 @@ h3 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing
 .loyaltystatus.sent { color: var(--success); }
 
 /* Config tab ------------------------------------------------------------- */
-.configtab { display: flex; flex-direction: column; gap: 14px; overflow-y: auto; flex: 1; min-height: 0; }
+/* overflow-y:auto makes this a scroll container, which forces the horizontal axis
+   to auto as well — so it clips on all four sides. The focus ring is a 2px
+   box-shadow painted OUTSIDE the border box, and the first row sits flush against
+   the edge, so without this padding the ring is cut off whenever a control here is
+   focused. The matching negative margin keeps the content aligned with the other
+   tabs (.panelbody already supplies the real 12px inset). */
+.configtab { display: flex; flex-direction: column; gap: 14px; overflow-y: auto; flex: 1; min-height: 0; padding: 3px; margin: -3px; }
 .cfgsetup { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
 .cfgfield { display: flex; flex-direction: column; gap: 4px; }
 .cfglbl { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--text-muted); font-weight: 700; }
 /* Fixed width + ellipsis on the closed control so a long register-type label
    can't wrap and push the row. */
 select.regtype { width: 420px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: var(--input-bg); border: 1px solid var(--border); color: var(--text); border-radius: var(--r-ctrl); padding: 7px 9px; font-size: 12px; }
+/* Host is read-only (fixed by the register type — see ConfigTab) but styled
+   exactly like the editable fields beside it, so the row reads as one set. Kept
+   as an <input> rather than a div so the font metrics and box match .pkey
+   without hand-tuning; readOnly still allows selecting/copying the address. */
 .cfgfield input.host { width: 150px; background: var(--input-bg); border: 1px solid var(--border); color: var(--text); border-radius: var(--r-ctrl); padding: 7px 9px; }
 .cfgfield input.pkey { width: 340px; max-width: 100%; background: var(--input-bg); border: 1px solid var(--border); color: var(--text); border-radius: var(--r-ctrl); padding: 7px 9px; }
 .cfgregister { background: var(--accent); color: var(--accent-text); border: 0; border-radius: var(--r-ctrl); padding: 8px 16px; font-weight: 600; cursor: pointer; }
@@ -506,3 +527,20 @@ select.regtype { width: 420px; max-width: 100%; white-space: nowrap; overflow: h
 .copyall { background: var(--control-bg); color: var(--text-muted); border: 1px solid var(--border); border-radius: var(--r-ctrl); padding: 4px 10px; font-size: 11px; cursor: pointer; }
 .copyall:hover { background: var(--control-hover); color: var(--text); }
 .cfgdump pre { margin: 0; font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); white-space: pre-wrap; word-break: break-all; max-height: 200px; overflow-y: auto; }
+
+/* LOA "Environment" select — replaces the Host input in LOA mode. Compact: the
+   badge is the whole control and the target URL is the tooltip. Tinted per
+   environment, with prod in danger red so it can never be picked quietly. */
+select.cfgenv { width: 92px; height: 33px; padding: 0 8px; font-size: 11px; font-weight: 700; letter-spacing: .5px; border: 1px solid var(--border); border-radius: var(--r-ctrl); background: var(--control-bg); color: var(--text-muted); }
+select.cfgenv.env-local { background: var(--control-bg); color: var(--text-muted); }
+select.cfgenv.env-dev { background: var(--accent); color: var(--accent-text); }
+select.cfgenv.env-e2e { background: var(--success); color: var(--success-text); }
+select.cfgenv.env-prod { background: var(--danger); color: var(--danger-text); }
+/* The popup list is drawn by the OS — keep its rows on the normal input surface
+   so they stay readable regardless of the badge tint. */
+select.cfgenv option { background: var(--input-bg); color: var(--text); font-weight: 600; }
+
+/* Forces a flex-row break inside .cfgsetup (LOA mode) so the Register and
+   pricebook buttons share their own line under the fields. Zero-height, so it
+   costs nothing but the row gap. */
+.cfgsetup .cfgbreak { flex-basis: 100%; height: 0; margin: 0; }

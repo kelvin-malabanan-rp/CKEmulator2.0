@@ -44,9 +44,17 @@ describe('builtinScenarios', () => {
     for (const s of all) expect(s.steps.length).toBeGreaterThan(0);
   });
 
-  it('returns 10 scenarios, each with a name, description and non-empty registerTypes', () => {
+  it('age-restricted scenario scans a 21+ item then a normal item (radiant6 only)', () => {
+    const s = builtinScenarios(params).find((x) => x.id === 'age-restricted-item')!;
+    expect(s.registerTypes).toEqual(['radiant6-canada', 'radiant6-us']);
+    const scans = s.steps.filter((st) => st.kind === 'scan');
+    expect(scans[0]).toMatchObject({ code: params.itemCode, minAge: 21 });
+    expect('minAge' in scans[1]).toBe(false); // the follow-up item is unrestricted
+  });
+
+  it('returns 11 scenarios, each with a name, description and non-empty registerTypes', () => {
     const all = builtinScenarios(params);
-    expect(all.length).toBe(10);
+    expect(all.length).toBe(11);
     for (const s of all) {
       expect(s.name.length).toBeGreaterThan(0);
       expect(s.description.length).toBeGreaterThan(0);
@@ -280,6 +288,7 @@ describe('describeStep', () => {
     expect(describeStep({ kind: 'loyalty', cardNumber: '70846414251491703' })).toBe('loyalty 70846414251491703');
     expect(describeStep({ kind: 'loyalty', cardNumber: '012345678905' })).toBe('loyalty 012345678905');
     expect(describeStep({ kind: 'scan', code: '028200009654' })).toBe('scan 028200009654');
+    expect(describeStep({ kind: 'scan', code: 'BEER', minAge: 21 })).toBe('scan BEER (21+)');
     expect(describeStep({ kind: 'wait', ms: 750 })).toBe('wait 750ms');
     expect(describeStep({ kind: 'tender', tenderKind: 'cash-exact' })).toBe('tender cash-exact');
     expect(describeStep({ kind: 'tender', tenderKind: 'amount', amountCents: 500 })).toBe('tender amount 5.00');
