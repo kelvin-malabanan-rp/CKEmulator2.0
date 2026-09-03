@@ -9,6 +9,8 @@ import {
   resolvePricebookUrl,
   findDatacenterName,
   configFromPlayerKeyFile,
+  stageForUrl,
+  DATACENTERS,
   PLAYER_KEY_FILENAME,
 } from './globalInit';
 
@@ -37,9 +39,13 @@ describe('parseProperties', () => {
 });
 
 describe('extractLocationCode / deriveTenant', () => {
-  it('strips a trailing numeric segment for location code', () => {
+  it('strips the trailing lane segment after the last dash (loa getLocationCode parity)', () => {
     expect(extractLocationCode('ca-radmarketing-1')).toBe('ca-radmarketing');
     expect(extractLocationCode('ie-12345-2')).toBe('ie-12345');
+    // Unconditional last-dash strip — not just numeric suffixes.
+    expect(extractLocationCode('us-2741604-laneA')).toBe('us-2741604');
+    // No dash → returned unchanged.
+    expect(extractLocationCode('31989')).toBe('31989');
   });
 
   it('derives tenant from the player code leading segment when no tenant property', () => {
@@ -126,5 +132,42 @@ describe('resolvePricebookUrl', () => {
 
   it('returns empty when neither pricebook.url nor init.url is available', () => {
     expect(resolvePricebookUrl({}, 'us')).toBe('');
+  });
+});
+
+describe('stageForUrl', () => {
+  it('classifies the local dev servers, including the LOA player port', () => {
+    expect(stageForUrl('http://localhost:5173/')).toBe('local');
+    expect(stageForUrl('http://127.0.0.1:8080/api/lift/')).toBe('local');
+  });
+
+  it('classifies the hosted LOA E2E build as e2e, not dev, despite the dev domain', () => {
+    expect(
+      stageForUrl('https://loa-player.e2e.circlekliftdev.com/20260605155159.d8638c8/index.html#playerKey=abc'),
+    ).toBe('e2e');
+  });
+
+  it('agrees with the stage every datacenter declares (devdog and dev both collapse to dev)', () => {
+    for (const dc of DATACENTERS) {
+      const expected = dc.stage === 'devdog' ? 'dev' : dc.stage;
+      expect(stageForUrl(dc.host), dc.name).toBe(expected);
+      expect(stageForUrl(dc.register), dc.name).toBe(expected);
+    }
+  });
+
+  it('separates the prod domain from the dev domain', () => {
+    expect(stageForUrl('https://player.circleklift.com/api/lift/')).toBe('prod');
+    expect(stageForUrl('https://player.circlekliftdev.com/api/lift/')).toBe('dev');
+  });
+
+  it('does not let a lookalike host masquerade as Circle K', () => {
+    expect(stageForUrl('https://evil-circleklift.com/')).toBe('unknown');
+    expect(stageForUrl('https://circlekliftdev.com.attacker.test/')).toBe('unknown');
+  });
+
+  it('returns unknown for an unparseable or foreign URL', () => {
+    expect(stageForUrl('')).toBe('unknown');
+    expect(stageForUrl('not a url')).toBe('unknown');
+    expect(stageForUrl('https://unknown.example.com/')).toBe('unknown');
   });
 });

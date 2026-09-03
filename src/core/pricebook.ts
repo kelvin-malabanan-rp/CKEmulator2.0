@@ -15,6 +15,11 @@ export interface PricebookEntry {
   description: string;
   priceCents: number;
   barcodes: string[];
+  /**
+   * Minimum customer age (legacy `<MinimumCustomerAge>` / PricebookItem.minAge).
+   * >0 marks the item age-restricted; absent when the dialect carries no age.
+   */
+  minAge?: number;
 }
 
 /** UPC/PLU → resolved item details. */
@@ -23,6 +28,8 @@ export interface ResolvedItem {
   description: string;
   priceCents: number;
   plu: string;
+  /** Minimum customer age (>0 = age-restricted); absent when unknown. */
+  minAge?: number;
 }
 
 /** A sellable item surfaced as a quick key in the emulator UI. */
@@ -30,6 +37,8 @@ export interface QuickKeyItem {
   code: string;
   description: string;
   priceCents: number;
+  /** Minimum customer age (>0 = age-restricted); absent when unknown. */
+  minAge?: number;
 }
 
 /** Result of a pricebook file load (returned from main → renderer over IPC). */
@@ -74,6 +83,11 @@ export function parsePricebook(xml: string): PricebookEntry[] {
     const description = firstTag(head, 'NLU-TEXT-LONG') ?? firstTag(head, 'NLU-TEXT') ?? '';
     const priceRaw = firstTag(head, 'PRICE');
     const priceCents = priceRaw !== null && /^-?\d+$/.test(priceRaw) ? parseInt(priceRaw, 10) : 0;
+    // Age restriction — OCT2000 has no standard age element (legacy sourced it
+    // from the item master), but we read <MinimumCustomerAge> tolerantly so the
+    // bundled sample can mark tobacco/alcohol; real OCT2000 exports simply omit it.
+    const ageRaw = firstTag(head, 'MinimumCustomerAge');
+    const minAge = ageRaw !== null && /^\d+$/.test(ageRaw) ? parseInt(ageRaw, 10) : undefined;
 
     const barcodes: string[] = [];
     const barcRe = /<BARCODE>(.*?)<\/BARCODE>/gs;
@@ -84,7 +98,7 @@ export function parsePricebook(xml: string): PricebookEntry[] {
     }
 
     if (plu || barcodes.length > 0) {
-      entries.push({ plu, description, priceCents, barcodes });
+      entries.push({ plu, description, priceCents, barcodes, ...(minAge !== undefined ? { minAge } : {}) });
     }
   }
   return entries;
@@ -125,7 +139,12 @@ export function parsePdiPricebook(xml: string): PricebookEntry[] {
     const priceRaw = firstTagLoose(body, 'RegularSellPrice');
     const priceCents =
       priceRaw !== null && /^-?\d+(\.\d+)?$/.test(priceRaw) ? Math.round(parseFloat(priceRaw) * 100) : 0;
-    entries.push({ plu: posCode, description, priceCents, barcodes: [posCode] });
+    // Age restriction — legacy PDIPricebookXmlHandler.java:273 reads
+    // <MinimumCustomerAge> into PricebookItem.minAge; carried onto the 1011
+    // wire as AgeMinimum so the player gates age verification.
+    const ageRaw = firstTagLoose(body, 'MinimumCustomerAge');
+    const minAge = ageRaw !== null && /^\d+$/.test(ageRaw) ? parseInt(ageRaw, 10) : undefined;
+    entries.push({ plu: posCode, description, priceCents, barcodes: [posCode], ...(minAge !== undefined ? { minAge } : {}) });
   }
   return entries;
 }
@@ -150,7 +169,13 @@ export function parsePricebookXml(xml: string): PricebookEntry[] {
 export function buildPricebookIndex(entries: PricebookEntry[]): Map<string, ResolvedItem> {
   const index = new Map<string, ResolvedItem>();
   for (const e of entries) {
-    const resolved: ResolvedItem = { code: '', description: e.description, priceCents: e.priceCents, plu: e.plu };
+    const resolved: ResolvedItem = {
+      code: '',
+      description: e.description,
+      priceCents: e.priceCents,
+      plu: e.plu,
+      ...(e.minAge !== undefined ? { minAge: e.minAge } : {}),
+    };
     if (e.plu) index.set(e.plu, { ...resolved, code: e.plu });
     for (const code of e.barcodes) {
       index.set(code, { ...resolved, code });
@@ -213,15 +238,21 @@ export function resolvePricebookFilename(
  * `UPC <code>` / $1.00 as the last-resort defaults for unknown items.
  */
 export function resolveScan(
-  hit: { description: string; priceCents: number } | undefined,
+  hit: { description: string; priceCents: number; minAge?: number } | undefined,
   code: string,
   description?: string,
   priceCents?: number,
-): { code: string; description: string; priceCents: number } {
+  minAge?: number,
+): { code: string; description: string; priceCents: number; minAge?: number } {
+  // Explicit caller age (a scenario forcing an age-restricted scan) wins over
+  // the pricebook entry's; only surface the key when one is known so callers
+  // that compare shapes (and the wire default of AgeMinimum=0) stay clean.
+  const resolvedAge = minAge ?? hit?.minAge;
   return {
     code,
     description: description?.trim() || hit?.description || `UPC ${code}`,
     priceCents: priceCents ?? hit?.priceCents ?? 100,
+    ...(resolvedAge !== undefined ? { minAge: resolvedAge } : {}),
   };
 }
 
@@ -232,7 +263,7 @@ export function pickQuickKeys(entries: PricebookEntry[], limit = 24): QuickKeyIt
     if (keys.length >= limit) break;
     const code = e.barcodes[0];
     if (code && e.description && e.priceCents > 0) {
-      keys.push({ code, description: e.description, priceCents: e.priceCents });
+      keys.push({ code, description: e.description, priceCents: e.priceCents, ...(e.minAge !== undefined ? { minAge: e.minAge } : {}) });
     }
   }
   return keys;

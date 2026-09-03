@@ -1,5 +1,6 @@
 /** Shared, browser-safe transport types used by main, preload and renderer. */
 import type { PricebookLoadResult } from './pricebook';
+import type { SettingsFetchResult } from './settingGroups';
 import type { GlobalInitResult } from './globalInit';
 import type { QuickKeyLoadResult } from './quickkeys';
 import type { AdsManifestResult, AdDetailResult } from './adTriggers';
@@ -17,18 +18,87 @@ export type Status = Record<Channel, ConnState>;
  */
 export type WireChannel = Channel | 'loa';
 
-/** Entry URL of the embedded loa-player dev server (LOA mode). `npm run serve:player`. */
-export const LOA_PLAYER_ENTRY_URL = 'http://localhost:9000/index.html';
+/**
+ * Environments a LOA player build can be deployed to. Same vocabulary as a
+ * datacenter's `stage` (see globalInit) so a target's declared environment can be
+ * checked against the URL it actually points at.
+ */
+export type LoaEnv = 'local' | 'dev' | 'e2e' | 'prod';
+
+/** Display label for an environment (the Config badge). */
+export const LOA_ENV_LABELS: Record<LoaEnv, string> = {
+  local: 'Local',
+  dev: 'Dev',
+  e2e: 'E2E',
+  prod: 'Prod',
+};
 
 /**
- * Build the embedded loa-player URL, passing the player key in the hash
- * (`#playerKey=…`) so it boots as that registered player (resolving its tenant,
- * settings and Mashgin station). An empty key yields the bare URL — the player
- * would boot with a default config and not consume our order documents.
+ * Every embeddable LOA player build, as (player, environment) → URL. The two LOA
+ * register types are different PLAYERS — 'loa-player' is the legacy loa-player,
+ * 'ckp2-loa' is CK Player 2.0's own LOA mode — and each is deployed to its own
+ * set of environments, so this is a matrix rather than one list per axis. Only
+ * the combinations that actually exist are listed; the Config env picker offers
+ * exactly the rows matching the selected register type.
  */
-export function loaEntryUrl(playerKey: string, baseUrl: string = LOA_PLAYER_ENTRY_URL): string {
+export const LOA_TARGETS: ReadonlyArray<{
+  registerType: RegisterType;
+  env: LoaEnv;
+  entryUrl: string;
+}> = [
+  {
+    registerType: 'loa-player',
+    env: 'e2e',
+    entryUrl:
+      'https://loa-player.e2e.circlekliftdev.com/20260605155159.d8638c8/index.html#playerKey=69acb823-3a55-4d10-b007-ebbc66b267ca',
+  },
+  { registerType: 'ckp2-loa', env: 'local', entryUrl: 'http://localhost:5173/' },
+];
+
+/** The environments the given LOA player is deployed to, in table order. */
+export function loaEnvsForRegisterType(type: RegisterType): LoaEnv[] {
+  return LOA_TARGETS.filter((t) => t.registerType === type).map((t) => t.env);
+}
+
+/**
+ * The environment to select when switching to a LOA player: the currently chosen
+ * one if that player has it, else its first. Keeps a register-type switch from
+ * leaving the config on a combination that doesn't exist.
+ */
+export function defaultLoaEnvForRegisterType(type: RegisterType, current?: LoaEnv): LoaEnv {
+  const envs = loaEnvsForRegisterType(type);
+  if (current && envs.includes(current)) return current;
+  return envs[0] ?? 'local';
+}
+
+/**
+ * The player build for a (register type, environment) pair. Falls back to that
+ * player's first build when the pair isn't in the table, and to the first LOA
+ * target overall for a non-LOA register type — callers gate on isLoaRegisterType().
+ */
+export function loaEntryUrlForTarget(type: RegisterType, env: LoaEnv): string {
+  const forType = LOA_TARGETS.filter((t) => t.registerType === type);
+  const exact = forType.find((t) => t.env === env);
+  return (exact ?? forType[0] ?? LOA_TARGETS[0]).entryUrl;
+}
+
+/**
+ * Build the embedded player URL, passing the player key in the hash
+ * (`#playerKey=...`) so it boots as that registered player (resolving its tenant,
+ * settings and Mashgin station). An empty key yields the base URL unchanged — for
+ * a local dev server that is the bare URL (the player boots with a default config
+ * and won't consume our order documents); for a deployed build that already pins a
+ * `#playerKey=` it keeps that key, so the target works out of the box.
+ *
+ * A configured key always wins: any hash the base URL carries is dropped first, so
+ * a pinned key can never survive alongside the one we asked for.
+ */
+export function loaEntryUrl(playerKey: string, baseUrl: string): string {
   const key = playerKey.trim();
-  return key ? `${baseUrl}#playerKey=${key}` : baseUrl;
+  if (!key) return baseUrl;
+  const hashAt = baseUrl.indexOf('#');
+  const base = hashAt >= 0 ? baseUrl.slice(0, hashAt) : baseUrl;
+  return `${base}#playerKey=${key}`;
 }
 
 /**
@@ -43,6 +113,12 @@ export function loaEntryUrl(playerKey: string, baseUrl: string = LOA_PLAYER_ENTR
  * 'verifone-topaz' at every behavior boundary via baseRegisterType(), so it
  * shares the encoder, scenarios, ports and en-US-only locale — only the
  * default connection host differs.
+ *
+ * loa-player and ckp2-loa are the two LOA players — the legacy loa-player and
+ * CK Player 2.0's own LOA mode. They speak the identical postMessage/NGRP
+ * protocol (ckp2-loa normalizes to 'loa-player' via baseRegisterType, exactly as
+ * the LoL preset does for Topaz); they differ only in which build is embedded,
+ * which LOA_TARGETS resolves from the register type plus the chosen LoaEnv.
  */
 export type RegisterType =
   | 'radiant6-canada'
@@ -50,7 +126,8 @@ export type RegisterType =
   | 'bulloch'
   | 'verifone-topaz'
   | 'verifone-topaz-lol'
-  | 'loa-player';
+  | 'loa-player'
+  | 'ckp2-loa';
 
 /** NetBird address of the LoL legacy-LIFT-on-Linux player (display :10, lane player2_lane1). */
 export const LOL_VM_HOST = '100.6.7.113';
@@ -63,7 +140,9 @@ export const LOL_VM_HOST = '100.6.7.113';
  * never needs its own copy of that logic.
  */
 export function baseRegisterType(type: RegisterType): RegisterType {
-  return type === 'verifone-topaz-lol' ? 'verifone-topaz' : type;
+  if (type === 'verifone-topaz-lol') return 'verifone-topaz';
+  if (type === 'ckp2-loa') return 'loa-player';
+  return type;
 }
 
 /**
@@ -101,10 +180,12 @@ export const REGISTER_TYPES: ReadonlyArray<{
     scannerPort: 10000,
     defaultHost: LOL_VM_HOST,
   },
-  // LOA mode: no TCP ports. The player is embedded as a cross-origin iframe and
-  // driven over postMessage (see LOA_PLAYER_ENTRY_URL / loaTransport). Ports are
-  // 0 so nothing tries to open a socket; isLoaRegisterType() gates that.
-  { value: 'loa-player', label: 'LOA (loa-player)', vjPort: 0, polePort: 0 },
+  // LOA modes: no TCP ports. The player is embedded as a cross-origin iframe and
+  // driven over postMessage (see LOA_TARGETS / loaTransport). Ports are 0 so
+  // nothing tries to open a socket; isLoaRegisterType() gates that. Which build
+  // each embeds comes from LOA_TARGETS, keyed by this value plus the LoaEnv.
+  { value: 'loa-player', label: 'LOA Legacy', vjPort: 0, polePort: 0 },
+  { value: 'ckp2-loa', label: 'CKP2.0 LOA Mode', vjPort: 0, polePort: 0 },
 ];
 
 /** True for LOA mode — the postMessage/iframe transport, not a TCP register. */
@@ -137,6 +218,11 @@ export interface PosConfig {
   /** Barcode-scanner feed port — only used by verifone-topaz. */
   scannerPort?: number;
   registerType: RegisterType;
+  /**
+   * Which environment's build LOA mode embeds — resolved together with
+   * registerType through LOA_TARGETS. Ignored by every TCP register type.
+   */
+  loaEnv: LoaEnv;
 }
 
 export const DEFAULT_POS_CONFIG: PosConfig = {
@@ -144,6 +230,7 @@ export const DEFAULT_POS_CONFIG: PosConfig = {
   vjPort: 5438,
   polePort: 5439,
   registerType: 'radiant6-canada',
+  loaEnv: 'local',
 };
 
 /**
@@ -195,6 +282,17 @@ export interface EmulatorBridge {
   }): Promise<PricebookLoadResult>;
   /** Register the player.key against the datacenters and return the generated config. */
   registerPlayer(req: { playerKey: string; product?: string }): Promise<GlobalInitResult>;
+  /**
+   * Fetch the portal setting groups for the registered player — returns the
+   * `loa-*` settings (prefix stripped), chiefly the real `pricebook.url` that
+   * GlobalInit registration omits. `contentCronBaseUrl` must be tenant-resolved.
+   */
+  fetchSettings(req: {
+    contentCronBaseUrl: string;
+    locationCode: string;
+    playerCode: string;
+    playerKey: string;
+  }): Promise<SettingsFetchResult>;
   /** Load the persisted player.key file (generated config) saved by a prior registration. */
   loadPlayerKey(): Promise<GlobalInitResult>;
   /** Load all `.qk` quick-key files from a folder (usualsuspects first). Empty dir uses the bundled defaults. */

@@ -100,7 +100,12 @@ describe('resolveQuickKeyDir', () => {
 });
 
 describe('quickKeyColor', () => {
-  const base = { pricebookLoaded: false, pricebookCodes: new Set<string>(), adCodes: new Set<string>() };
+  const base = {
+    pricebookLoaded: false,
+    pricebookCodes: new Set<string>(),
+    adCodes: new Set<string>(),
+    ageCodes: new Set<string>(),
+  };
 
   it('is green when the upc has an ad trigger', () => {
     expect(quickKeyColor('123', { ...base, adCodes: new Set(['123']) })).toBe('green');
@@ -116,8 +121,20 @@ describe('quickKeyColor', () => {
 
   it('prefers green over grey when the upc has an ad but is not in the pricebook', () => {
     expect(
-      quickKeyColor('123', { pricebookLoaded: true, pricebookCodes: new Set(['999']), adCodes: new Set(['123']) }),
+      quickKeyColor('123', { ...base, pricebookLoaded: true, pricebookCodes: new Set(['999']), adCodes: new Set(['123']) }),
     ).toBe('green');
+  });
+
+  it('is orange when the upc is age-restricted', () => {
+    expect(quickKeyColor('123', { ...base, ageCodes: new Set(['123']) })).toBe('orange');
+  });
+
+  it('prefers orange over a plain ad trigger (legacy checks age first)', () => {
+    expect(quickKeyColor('123', { ...base, ageCodes: new Set(['123']), adCodes: new Set(['999']) })).toBe('orange');
+  });
+
+  it('is dark-green when the upc is both age-restricted and an ad trigger', () => {
+    expect(quickKeyColor('123', { ...base, ageCodes: new Set(['123']), adCodes: new Set(['123']) })).toBe('dark-green');
   });
 });
 

@@ -47,6 +47,20 @@ describe('RegisterSession', () => {
     expect(s.snapshot().lines[0].quantity).toBe(2);
   });
 
+  it('addItem carries minAge onto the 1011 AgeMinimum field and into the snapshot', () => {
+    const s = new RegisterSession();
+    const restricted = s.addItem({ code: 'BEER', description: 'Beer', priceCents: 899, minAge: 21 });
+    const itemAdd = restricted.find((m) => m.data.includes('EventId=1011'))!;
+    expect(itemAdd.data).toContain('AgeMinimum=21');
+    expect(s.snapshot().lines[0].minAge).toBe(21);
+
+    // Unrestricted items default to AgeMinimum=0 and expose no minAge.
+    const plain = s.addItem({ code: 'COKE', description: 'Coke', priceCents: 169 });
+    const plainAdd = plain.find((m) => m.data.includes('EventId=1011'))!;
+    expect(plainAdd.data).toContain('AgeMinimum=0');
+    expect(s.snapshot().lines[1].minAge).toBeUndefined();
+  });
+
   it('loyalty emits EventId 1024 with the card number', () => {
     const s = new RegisterSession();
     const msgs = s.loyalty('8018782603800034999992');
@@ -524,6 +538,17 @@ describe('RegisterSession — LOA (postMessage NGRP)', () => {
     expect(d.order.itemLines).toHaveLength(1);
     expect(d.order.itemLines[0]).toMatchObject({ posCode: '049000000443', amount: 2.29, quantity: 2 });
     expect(d.order.subtotal).toBe(4.58);
+  });
+
+  it('CKP2.0 LOA Mode produces byte-identical docs to LOA Legacy (same protocol)', () => {
+    const legacy = loa().addItem({ code: '049000000443', description: 'Coke', priceCents: 229 });
+    const ckp2 = new RegisterSession({
+      registerType: 'ckp2-loa',
+      taxRateBps: 0,
+      orderUuidGen: () => 'UUID1',
+      storeCode: '3016875',
+    });
+    expect(ckp2.addItem({ code: '049000000443', description: 'Coke', priceCents: 229 })).toEqual(legacy);
   });
 
   it('voiding the last live line cancels the basket; voiding one of several stays OPEN', () => {

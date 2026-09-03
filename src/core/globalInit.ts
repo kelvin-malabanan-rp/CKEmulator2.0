@@ -78,13 +78,18 @@ export function parseProperties(text: string): Map<string, string> {
   return props;
 }
 
-/** Player code `ca-radmarketing-1` → location `ca-radmarketing` (strip trailing `-<n>`). */
+/**
+ * Player code → location code by stripping the trailing lane segment after the
+ * LAST dash: `ca-radmarketing-1` → `ca-radmarketing`, `us-2741604-1` →
+ * `us-2741604`. Matches loa-player `PlayerUtils.getLocationCode` exactly (an
+ * UNCONDITIONAL last-dash strip, not only numeric suffixes) — the portal
+ * settinggroups query keys on `related.locationcode`, so a divergent locationCode
+ * silently returns no settings (and thus no `pricebook.url`). Codes with no dash
+ * are returned unchanged.
+ */
 export function extractLocationCode(playerCode: string): string {
   const lastDash = playerCode.lastIndexOf('-');
-  if (lastDash > 0 && /^\d+$/.test(playerCode.slice(lastDash + 1))) {
-    return playerCode.slice(0, lastDash);
-  }
-  return playerCode;
+  return lastDash > 0 ? playerCode.slice(0, lastDash) : playerCode;
 }
 
 /** Tenant from an explicit `tenant=` property, else the player code's leading segment (`ca-…` → `ca`). */
@@ -168,6 +173,37 @@ export function findDatacenterName(endpoints: Record<string, string>): string | 
     if (dc) return dc.name;
   }
   return undefined;
+}
+
+/**
+ * The environment a URL points at, in the same vocabulary {@link DATACENTERS}
+ * uses for its `stage`. 'unknown' covers a host outside the Circle K estate.
+ */
+export type Stage = 'local' | 'dev' | 'e2e' | 'prod' | 'unknown';
+
+/**
+ * Classify a URL by the environment its host belongs to. Used to label a target
+ * whose environment isn't otherwise stated — chiefly the LOA player builds,
+ * which are addressed by URL rather than by registering against a datacenter.
+ *
+ * Order matters: the e2e hosts (`loa-player.e2e.circlekliftdev.com`,
+ * `player.eu-e2e.…`) also sit under the dev domain, so e2e is matched first.
+ * DATACENTERS distinguishes NA dev ('devdog') from EU dev ('dev'); that split is
+ * about which datacenter to probe, not which environment you're in, so both
+ * collapse to 'dev' here.
+ */
+export function stageForUrl(url: string): Stage {
+  let host: string;
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    return 'unknown';
+  }
+  if (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]') return 'local';
+  if (/(^|[.-])e2e\./.test(host)) return 'e2e';
+  if (host === 'circlekliftdev.com' || host.endsWith('.circlekliftdev.com')) return 'dev';
+  if (host === 'circleklift.com' || host.endsWith('.circleklift.com')) return 'prod';
+  return 'unknown';
 }
 
 /**

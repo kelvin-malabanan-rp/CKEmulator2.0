@@ -116,6 +116,12 @@ export function QuickKeys({
         )}
       </div>
 
+      <div className="qklegend">
+        <span><i className="sw orange" /> Age restricted</span>
+        <span><i className="sw green" /> Ad trigger</span>
+        <span><i className="sw dark-green" /> Trigger + age</span>
+      </div>
+
       <div className="qkgrid">
         {current.length === 0 ? (
           <div className="qkempty">{searching ? 'No matching items' : 'No quick keys loaded'}</div>

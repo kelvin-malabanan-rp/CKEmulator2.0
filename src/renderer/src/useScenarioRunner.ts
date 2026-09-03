@@ -119,7 +119,7 @@ export function useScenarioRunner(e: ReturnType<typeof useEmulator>): {
     const live = (): boolean => mountedRef.current && runIdRef.current === runId;
 
     const actions: ScenarioActions = {
-      scan: (code, description, priceCents) => emulatorRef.current.scan(code, description, priceCents),
+      scan: (code, description, priceCents, minAge) => emulatorRef.current.scan(code, description, priceCents, minAge),
       loyalty: (cardNumber) => emulatorRef.current.loyalty(cardNumber),
       tender: (kind, amountCents) => emulatorRef.current.tender(kind, amountCents),
       voidLine: (lineNumber) => emulatorRef.current.voidLine(lineNumber),

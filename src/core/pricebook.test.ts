@@ -49,6 +49,21 @@ describe('parsePricebook', () => {
   it('returns no entries for content without DRY articles', () => {
     expect(parsePricebook('<OCT2000-IMPORT><CMPGN><CAMPAIGN-ID>1</CAMPAIGN-ID></CMPGN></OCT2000-IMPORT>')).toEqual([]);
   });
+
+  it('reads a tolerant MinimumCustomerAge from the DRY head (bundled-sample age tagging)', () => {
+    const oct =
+      '<DRY><NLU-NO>900001</NLU-NO><NLU-TEXT-LONG>Marlboro</NLU-TEXT-LONG><PRICE>599</PRICE>' +
+      '<MinimumCustomerAge>21</MinimumCustomerAge><BARC><BARCODE>028200009654</BARCODE></BARC></DRY>';
+    expect(parsePricebook(oct)[0]).toEqual({
+      plu: '900001',
+      description: 'Marlboro',
+      priceCents: 599,
+      barcodes: ['028200009654'],
+      minAge: 21,
+    });
+    // Unrestricted DRY articles carry no minAge key (wire default AgeMinimum=0).
+    expect(parsePricebook(XML)[0].minAge).toBeUndefined();
+  });
 });
 
 describe('buildPricebookIndex / loadPricebookIndex', () => {
@@ -156,6 +171,14 @@ describe('resolveScan', () => {
   it('unknown item with no explicit values defaults to UPC <code> at $1.00', () => {
     expect(resolveScan(undefined, '999')).toEqual({ code: '999', description: 'UPC 999', priceCents: 100 });
   });
+
+  it('carries minAge from the hit, with an explicit age winning over it', () => {
+    const beerHit = { description: 'Beer', priceCents: 899, minAge: 18 };
+    expect(resolveScan(beerHit, 'BEER').minAge).toBe(18); // from the hit
+    expect(resolveScan(beerHit, 'BEER', undefined, undefined, 21).minAge).toBe(21); // explicit wins
+    expect(resolveScan(undefined, 'BEER', undefined, undefined, 21).minAge).toBe(21); // explicit, no hit
+    expect(resolveScan(hit, '049000000443')).not.toHaveProperty('minAge'); // no age anywhere
+  });
 });
 
 describe('pickQuickKeys', () => {
@@ -170,6 +193,34 @@ describe('pickQuickKeys', () => {
 
   it('respects the limit', () => {
     expect(pickQuickKeys(parsePricebook(XML), 1)).toHaveLength(1);
+  });
+
+  it('carries minAge onto age-restricted quick keys', () => {
+    const entries = parsePdiPricebook(
+      '<ITTDetail><ItemCode><POSCode>BEER</POSCode></ItemCode>' +
+        '<ITTData><Description>Beer</Description><RegularSellPrice>8.99</RegularSellPrice>' +
+        '<MinimumCustomerAge>21</MinimumCustomerAge></ITTData></ITTDetail>',
+    );
+    expect(pickQuickKeys(entries)).toEqual([
+      { code: 'BEER', description: 'Beer', priceCents: 899, minAge: 21 },
+    ]);
+  });
+});
+
+describe('buildPricebookIndex — minAge', () => {
+  it('carries minAge onto every barcode and the PLU entry', () => {
+    const index = buildPricebookIndex([
+      { plu: 'BEER', description: 'Beer', priceCents: 899, barcodes: ['BEER', '444400001111'], minAge: 21 },
+    ]);
+    expect(index.get('BEER')?.minAge).toBe(21);
+    expect(index.get('444400001111')?.minAge).toBe(21);
+  });
+
+  it('leaves minAge undefined for unrestricted items', () => {
+    const index = buildPricebookIndex([
+      { plu: 'COKE', description: 'Coke', priceCents: 169, barcodes: ['COKE'] },
+    ]);
+    expect(index.get('COKE')?.minAge).toBeUndefined();
   });
 });
 
@@ -195,6 +246,18 @@ describe('parsePdiPricebook', () => {
   it('skips ITTDetail entries with no POS code', () => {
     const xml = '<ITTDetail><ITTData><Description>Orphan</Description></ITTData></ITTDetail>';
     expect(parsePdiPricebook(xml)).toEqual([]);
+  });
+
+  it('extracts MinimumCustomerAge into minAge (absent when the item carries none)', () => {
+    const xml =
+      '<ITTDetail><ItemCode><POSCode>BEER</POSCode></ItemCode>' +
+      '<ITTData><Description>Beer</Description><RegularSellPrice>8.99</RegularSellPrice>' +
+      '<MinimumCustomerAge>21</MinimumCustomerAge></ITTData></ITTDetail>';
+    expect(parsePdiPricebook(xml)).toEqual([
+      { plu: 'BEER', description: 'Beer', priceCents: 899, barcodes: ['BEER'], minAge: 21 },
+    ]);
+    // No age element → no minAge key (keeps the wire default AgeMinimum=0).
+    expect(parsePdiPricebook(PDI_XML)[0].minAge).toBeUndefined();
   });
 });
 

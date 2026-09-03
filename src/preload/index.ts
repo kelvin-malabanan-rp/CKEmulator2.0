@@ -24,6 +24,8 @@ const emulator: EmulatorBridge = {
   downloadPricebook: (req: { pricebookUrl: string; playerCode: string; playerKey: string; locationCode: string }) =>
     ipcRenderer.invoke('pricebook:download', req),
   registerPlayer: (req: { playerKey: string; product?: string }) => ipcRenderer.invoke('globalinit:register', req),
+  fetchSettings: (req: { contentCronBaseUrl: string; locationCode: string; playerCode: string; playerKey: string }) =>
+    ipcRenderer.invoke('settings:fetch', req),
   loadPlayerKey: () => ipcRenderer.invoke('globalinit:load'),
   loadQuickKeys: (req: { dir?: string }) => ipcRenderer.invoke('quickkeys:load', req),
   loadAds: (req: { backendBaseUrl: string; playerCode: string; playerKey: string }) =>

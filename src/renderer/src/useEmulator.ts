@@ -22,7 +22,7 @@ import {
   type PricebookLoadResult,
   type ResolvedItem,
 } from '../../core/pricebook';
-import { resolvePricebookUrl, type GlobalInitConfig } from '../../core/globalInit';
+import { resolvePricebookUrl, resolveTenantUrl, type GlobalInitConfig } from '../../core/globalInit';
 import { quickKeyColor, type QuickKeyColor, type QuickKeyEntry, type QuickKeyFile } from '../../core/quickkeys';
 import {
   extractTriggersCompleters,
@@ -101,14 +101,16 @@ export function useEmulator(): {
   pricebookDir: string;
   setPricebookDir: (dir: string) => void;
   pricebookStatus: PricebookLoadResult | null;
+  /** True while a pricebook download is in flight (register auto-download or manual). */
+  pricebookBusy: boolean;
   loadPricebook: () => Promise<void>;
   /** Download the live pricebook for the registered player into the item grid. */
   downloadPricebook: () => Promise<void>;
   /** Player code whose downloaded pricebook is loaded (null = none / only the sample). */
   pricebookDownloadedCode: string | null;
   addItem: (item: PricebookItem) => void;
-  addCustom: (input: { code: string; description: string; priceCents: number; quantity: number }) => void;
-  scan: (code: string, description?: string, priceCents?: number) => void;
+  addCustom: (input: { code: string; description: string; priceCents: number; quantity: number; minAge?: number }) => void;
+  scan: (code: string, description?: string, priceCents?: number, minAge?: number) => void;
   voidLine: (lineNumber: number) => void;
   setQuantity: (lineNumber: number, qty: number) => void;
   setPrice: (lineNumber: number, priceCents: number) => void;
@@ -248,10 +250,20 @@ export function useEmulator(): {
   );
 
   const pricebookCodes = useMemo(() => new Set(pricebookIndex.keys()), [pricebookIndex]);
+  // UPCs the pricebook marks age-restricted (minAge > 0) — colors their quick
+  // keys orange (legacy EmulatorUI ACCENT_ORANGE), or dark-green when the code
+  // is also an ad trigger.
+  const ageCodes = useMemo(() => {
+    const codes = new Set<string>();
+    for (const [code, item] of pricebookIndex) {
+      if ((item.minAge ?? 0) > 0) codes.add(code);
+    }
+    return codes;
+  }, [pricebookIndex]);
   const quickKeyColorFor = useCallback(
     (upc: string): QuickKeyColor =>
-      quickKeyColor(upc, { pricebookLoaded: pricebookEntries.length > 0, pricebookCodes, adCodes }),
-    [pricebookCodes, pricebookEntries.length, adCodes],
+      quickKeyColor(upc, { pricebookLoaded: pricebookEntries.length > 0, pricebookCodes, adCodes, ageCodes }),
+    [pricebookCodes, pricebookEntries.length, adCodes, ageCodes],
   );
 
   const loadQuickKeys = useCallback(async () => {
@@ -271,6 +283,11 @@ export function useEmulator(): {
   // (e2e / dev / prod), with that datacenter's endpoint URLs.
   const [globalInit, setGlobalInit] = useState<GlobalInitConfig | null>(null);
   const [globalInitError, setGlobalInitError] = useState<string | null>(null);
+  // Real pricebook.url resolved from the portal setting groups (GlobalInit omits
+  // it). Preferred over the derived guess when present. Cleared on re-register.
+  const [settingsPricebookUrl, setSettingsPricebookUrl] = useState<string | null>(null);
+  // True while a pricebook download is in flight (drives the ConfigTab "downloading…" state).
+  const [pricebookBusy, setPricebookBusy] = useState(false);
 
   // The backend to talk to is auto-detected from the registered datacenter's
   // endpoints (so an e2e player.key hits e2e even if the Backend field says dev).
@@ -437,7 +454,13 @@ export function useEmulator(): {
     (cmd: InjectCommand) => {
       const hit = pricebookIndex.get(cmd.barcode) ?? quickKeys.find((p) => p.code === cmd.barcode);
       const item = hit
-        ? { code: hit.code, description: hit.description, priceCents: hit.priceCents, quantity: cmd.quantity }
+        ? {
+            code: hit.code,
+            description: hit.description,
+            priceCents: hit.priceCents,
+            quantity: cmd.quantity,
+            ...(hit.minAge !== undefined ? { minAge: hit.minAge } : {}),
+          }
         : { code: cmd.barcode, description: `UPC ${cmd.barcode}`, priceCents: 100, quantity: cmd.quantity };
       logSys(`Completer inject: ${cmd.barcode} ×${cmd.quantity} → ${item.description}`);
       dispatch(session.addItem(item));
@@ -528,44 +551,100 @@ export function useEmulator(): {
   // Redundant *automatic* loads are avoided elsewhere: startup/registration read
   // the userData cache instead of the network (see loadPricebook), so this only
   // hits the network on a deliberate download.
+  // Core download for a specific registered config. `urlOverride` (the portal
+  // setting groups' pricebook.url, threaded through the register chain to dodge
+  // the setState race) wins over the persisted settings URL and the derived
+  // guess. Runs against the main process, which fetches + decompresses + parses.
+  const downloadFor = useCallback(
+    async (gi: GlobalInitConfig, urlOverride?: string): Promise<void> => {
+      const pricebookUrl =
+        (urlOverride && urlOverride.trim()) ||
+        (settingsPricebookUrl && settingsPricebookUrl.trim()) ||
+        resolvePricebookUrl(gi.endpoints, gi.tenant);
+      if (!pricebookUrl) {
+        logSys('No pricebook URL available for this player (missing pricebook.url / init.url).');
+        return;
+      }
+      logSys(`Downloading pricebook for ${gi.playerCode} (tenant ${gi.tenant})…`);
+      setPricebookBusy(true);
+      let result: PricebookLoadResult;
+      try {
+        result = await window.emulator.downloadPricebook({
+          pricebookUrl,
+          playerCode: gi.playerCode,
+          playerKey: gi.playerKey || playerConfig.playerKey,
+          locationCode: gi.locationCode,
+        });
+      } catch (err) {
+        // e.g. the main process predates this IPC handler — restart `npm run dev`.
+        result = {
+          ok: false,
+          count: 0,
+          entries: [],
+          path: pricebookUrl,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      } finally {
+        setPricebookBusy(false);
+      }
+      setPricebookStatus(result);
+      if (result.ok) {
+        setPricebookEntries(result.entries);
+        setPricebookDownloadedCode(gi.playerCode);
+        logSys(`Pricebook downloaded: ${result.count} items`);
+      } else {
+        logSys(`Pricebook download failed: ${result.error}`);
+      }
+    },
+    [settingsPricebookUrl, playerConfig.playerKey, logSys],
+  );
+
+  // Manual (re-)download button — always (re-)downloads for the current player.
   const downloadPricebook = useCallback(async () => {
     if (!globalInit) {
       logSys('Register the player first, then download its pricebook.');
       return;
     }
-    const pricebookUrl = resolvePricebookUrl(globalInit.endpoints, globalInit.tenant);
-    if (!pricebookUrl) {
-      logSys('No pricebook URL available for this player (missing pricebook.url / init.url).');
-      return;
-    }
-    logSys(`Downloading pricebook for ${globalInit.playerCode} (tenant ${globalInit.tenant})…`);
-    let result: PricebookLoadResult;
-    try {
-      result = await window.emulator.downloadPricebook({
-        pricebookUrl,
-        playerCode: globalInit.playerCode,
-        playerKey: globalInit.playerKey || playerConfig.playerKey,
-        locationCode: globalInit.locationCode,
-      });
-    } catch (err) {
-      // e.g. the main process predates this IPC handler — restart `npm run dev`.
-      result = {
-        ok: false,
-        count: 0,
-        entries: [],
-        path: pricebookUrl,
-        error: err instanceof Error ? err.message : String(err),
-      };
-    }
-    setPricebookStatus(result);
-    if (result.ok) {
-      setPricebookEntries(result.entries);
-      setPricebookDownloadedCode(globalInit.playerCode);
-      logSys(`Pricebook downloaded: ${result.count} items`);
-    } else {
-      logSys(`Pricebook download failed: ${result.error}`);
-    }
-  }, [globalInit, playerConfig.playerKey, logSys]);
+    await downloadFor(globalInit);
+  }, [globalInit, downloadFor, logSys]);
+
+  // Post-registration chain: fetch the portal setting groups to learn the real
+  // pricebook.url (GlobalInit omits it), then auto-download the pricebook. Both
+  // stages are best-effort — a settings/pricebook failure never invalidates a
+  // successful registration; the download falls back to the derived URL. Run
+  // fire-and-forget from registerPlayer so it doesn't block the Register button.
+  const hydrateSettingsAndDownload = useCallback(
+    async (gi: GlobalInitConfig): Promise<void> => {
+      const contentCronBaseUrl = resolveTenantUrl(gi.endpoints['contentCron.baseUrl'] ?? '', gi.tenant);
+      let pricebookUrl = '';
+      if (contentCronBaseUrl) {
+        logSys('Fetching portal settings (pricebook.url)…');
+        try {
+          const s = await window.emulator.fetchSettings({
+            contentCronBaseUrl,
+            locationCode: gi.locationCode,
+            playerCode: gi.playerCode,
+            playerKey: gi.playerKey || playerConfig.playerKey,
+          });
+          if (s.ok && s.pricebookUrl) {
+            pricebookUrl = s.pricebookUrl;
+            setSettingsPricebookUrl(pricebookUrl);
+            logSys('Settings: resolved pricebook.url from the portal.');
+          } else if (s.ok) {
+            logSys('Settings: portal has no pricebook.url — using the derived URL.');
+          } else {
+            logSys(`Settings fetch failed: ${s.error ?? 'unknown'} — using the derived URL.`);
+          }
+        } catch (err) {
+          logSys(`Settings fetch failed: ${err instanceof Error ? err.message : String(err)} — using the derived URL.`);
+        }
+      } else {
+        logSys('No contentCron.baseUrl in the config — using the derived pricebook URL.');
+      }
+      await downloadFor(gi, pricebookUrl);
+    },
+    [downloadFor, playerConfig.playerKey, logSys],
+  );
 
   // Load the pricebook on mount and whenever the player code or pricebook dir
   // changes — so once hydration resolves the player code, a previously-downloaded
@@ -606,18 +685,24 @@ export function useEmulator(): {
     const res = await window.emulator.registerPlayer({ playerKey: playerConfig.playerKey });
     if (res.ok && res.config) {
       setGlobalInit(res.config);
-      // Re-registration allows a fresh pricebook download (clears the once-guard).
+      // Re-registration allows a fresh pricebook download (clears the once-guard)
+      // and a fresh settings resolution (drop any stale portal pricebook.url).
       setPricebookDownloadedCode(null);
+      setSettingsPricebookUrl(null);
       // Adopt the discovered player code so the rest of the app (pricebook,
       // tenant) lines up with the registered player.
       setPlayerConfig({ ...playerConfig, playerCode: res.config.playerCode });
       logSys(`Registered: ${res.config.playerCode} (tenant ${res.config.tenant}) via ${res.config.datacenter}`);
+      // One-button flow: resolve the portal pricebook.url and auto-download the
+      // pricebook. Fire-and-forget — registration is already complete and must
+      // not block on (or fail because of) the pricebook stage.
+      void hydrateSettingsAndDownload(res.config);
     } else {
       setGlobalInit(null);
       setGlobalInitError(res.error ?? 'Registration failed');
       logSys(`Register failed: ${res.error ?? 'unknown error'}`);
     }
-  }, [playerConfig, setPlayerConfig, logSys]);
+  }, [playerConfig, setPlayerConfig, hydrateSettingsAndDownload, logSys]);
 
   return useMemo(
     () => ({
@@ -642,15 +727,20 @@ export function useEmulator(): {
       quickKeys,
       quickKeyFiles,
       quickKeyColorFor,
-      fireQuickKey: (entry: QuickKeyEntry) =>
+      fireQuickKey: (entry: QuickKeyEntry) => {
+        // A `.qk` row carries no age; source the item's minAge from the loaded
+        // pricebook so age-restricted quick keys still emit AgeMinimum.
+        const minAge = pricebookIndex.get(entry.upc)?.minAge;
         dispatch(
           session.addItem({
             code: entry.upc,
             description: entry.description,
             priceCents: entry.priceCents,
             quantity: entry.quantity,
+            ...(minAge !== undefined ? { minAge } : {}),
           }),
-        ),
+        );
+      },
       reloadQuickKeys: loadQuickKeys,
       adManifest,
       adDetails,
@@ -660,15 +750,16 @@ export function useEmulator(): {
       pricebookDir,
       setPricebookDir,
       pricebookStatus,
+      pricebookBusy,
       loadPricebook,
       downloadPricebook,
       pricebookDownloadedCode,
       addItem: (item: PricebookItem) => dispatch(session.addItem(item)),
-      addCustom: (input: { code: string; description: string; priceCents: number; quantity: number }) =>
+      addCustom: (input: { code: string; description: string; priceCents: number; quantity: number; minAge?: number }) =>
         dispatch(session.addItem(input)),
-      scan: (code: string, description?: string, priceCents?: number) => {
+      scan: (code: string, description?: string, priceCents?: number, minAge?: number) => {
         const hit = pricebookIndex.get(code) ?? quickKeys.find((p) => p.code === code);
-        dispatch(session.addItem(resolveScan(hit, code, description, priceCents)));
+        dispatch(session.addItem(resolveScan(hit, code, description, priceCents, minAge)));
       },
       voidLine: (lineNumber: number) => dispatch(session.voidLine(lineNumber)),
       setQuantity: (lineNumber: number, qty: number) => dispatch(session.setQuantity(lineNumber, qty)),
@@ -714,6 +805,7 @@ export function useEmulator(): {
       pricebookDir,
       setPricebookDir,
       pricebookStatus,
+      pricebookBusy,
       loadPricebook,
       downloadPricebook,
       pricebookDownloadedCode,
