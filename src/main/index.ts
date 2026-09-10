@@ -5,8 +5,10 @@ import { readdir, readFile, writeFile } from 'fs/promises';
 import { networkInterfaces } from 'os';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 import { PosTransport } from './PosTransport';
+import { OctaneTransport } from './OctaneTransport';
+import type { RegisterTransport } from './RegisterTransport';
 import type { Channel, Status } from './PosTransport';
-import type { PosConfig } from '../core/posTypes';
+import { isOctaneRegisterType, type PosConfig } from '../core/posTypes';
 import { gunzipSync, inflateSync, inflateRawSync } from 'zlib';
 import { parsePricebookXml, resolvePricebookFilename, resolvePricebookDir } from '../core/pricebook';
 import type { PricebookLoadResult } from '../core/pricebook';
@@ -80,7 +82,23 @@ function bundledResourceDir(name: string): string {
 const bundledQuickKeyDir = (): string => bundledResourceDir('quickkey');
 const bundledPricebookDir = (): string => bundledResourceDir('pricebook');
 
-let transport: PosTransport | null = null;
+let transport: RegisterTransport | null = null;
+
+/**
+ * The transport for a register type. Octane's journal is HTTP (an outbound
+ * POST per event plus an inbound scan server), every other family is TCP
+ * sockets — so the wire, not just the encoding, differs by type.
+ */
+function createTransport(config: PosConfig): RegisterTransport {
+  if (isOctaneRegisterType(config.registerType)) {
+    return new OctaneTransport({
+      host: config.host,
+      vjPort: config.vjPort,
+      ...(config.scannerPort !== undefined ? { scannerPort: config.scannerPort } : {}),
+    });
+  }
+  return new PosTransport(config);
+}
 
 /** Browser User-Agent for the pricebook fetch (the portal 403s the Electron UA). */
 const PRICEBOOK_DOWNLOAD_UA =
@@ -109,7 +127,7 @@ async function persistPlayerKeyFile(raw: string): Promise<void> {
 function registerEmulatorIpc(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle('emulator:connect', async (_evt, config: PosConfig) => {
     transport?.close();
-    transport = new PosTransport(config);
+    transport = createTransport(config);
     transport.onStatus((status: Status) => {
       getWindow()?.webContents.send('emulator:status-changed', status);
     });

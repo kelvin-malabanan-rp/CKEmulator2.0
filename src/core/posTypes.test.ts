@@ -8,6 +8,8 @@ import {
   hostForRegisterType,
   baseRegisterType,
   isLoaRegisterType,
+  isOctaneRegisterType,
+  registerTypeOptionLabel,
   loaEntryUrl,
   loaEntryUrlForTarget,
   loaEnvsForRegisterType,
@@ -59,13 +61,14 @@ describe('register types & ports', () => {
     expect(portsForRegisterType('bulloch')).toEqual({ vjPort: 5438, polePort: 5440 });
   });
 
-  it('lists exactly the seven register types with labels', () => {
+  it('lists exactly the eight register types with labels', () => {
     expect(REGISTER_TYPES.map((r) => r.value)).toEqual([
       'radiant6-canada',
       'radiant6-us',
       'bulloch',
       'verifone-topaz',
       'verifone-topaz-lol',
+      'octane',
       'loa-player',
       'ckp2-loa',
     ]);
@@ -102,6 +105,42 @@ describe('register types & ports', () => {
     ]);
     expect(portsForRegisterType('loa-player')).toEqual({ vjPort: 0, polePort: 0 });
     expect(portsForRegisterType('ckp2-loa')).toEqual({ vjPort: 0, polePort: 0 });
+  });
+
+  it('maps Octane to the HTTP journal port 8023 and the inbound scan port 8020', () => {
+    expect(portsForRegisterType('octane')).toEqual({ vjPort: 8023, polePort: 0, scannerPort: 8020 });
+  });
+
+  it('registers Octane with no pole display', () => {
+    expect(REGISTER_TYPES.find((r) => r.value === 'octane')).toEqual({
+      value: 'octane',
+      label: 'Octane',
+      vjPort: 8023,
+      polePort: 0,
+      scannerPort: 8020,
+    });
+  });
+
+  it('isOctaneRegisterType singles out Octane', () => {
+    expect(isOctaneRegisterType('octane')).toBe(true);
+    expect(isOctaneRegisterType('radiant6-canada')).toBe(false);
+    expect(isOctaneRegisterType('verifone-topaz')).toBe(false);
+    expect(isOctaneRegisterType('loa-player')).toBe(false);
+  });
+
+  it('Octane is not mistaken for a LOA register', () => {
+    expect(isLoaRegisterType('octane')).toBe(false);
+  });
+
+  it('registerTypeOptionLabel names only the endpoints a type actually uses', () => {
+    const label = (value: string): string =>
+      registerTypeOptionLabel(REGISTER_TYPES.find((r) => r.value === value)!);
+    expect(label('radiant6-canada')).toBe('Radiant6 Canada (VJ 5438 / Pole 5439)');
+    expect(label('verifone-topaz')).toBe('Verifone Topaz (VJ 10002 / Pole 10001 / Scanner 10000)');
+    // Octane has no pole, and its scanner port is inbound — say so rather than
+    // advertising a "Pole 0" that nothing ever opens.
+    expect(label('octane')).toBe('Octane (HTTP VJ 8023 / Scan-in 8020)');
+    expect(label('loa-player')).toBe('LOA Legacy (postMessage)');
   });
 
   it('isLoaRegisterType is true for both LOA players, false for the TCP registers', () => {
@@ -146,7 +185,9 @@ describe('LOA targets (player x environment)', () => {
   it('ships LOA Legacy to e2e and CKP2.0 LOA Mode to the local dev server', () => {
     expect(loaEnvsForRegisterType('loa-player')).toEqual(['e2e']);
     expect(loaEnvsForRegisterType('ckp2-loa')).toEqual(['local']);
-    expect(loaEntryUrlForTarget('ckp2-loa', 'local')).toBe('http://localhost:5173/');
+    expect(loaEntryUrlForTarget('ckp2-loa', 'local')).toBe(
+      'http://localhost:5173/shopper.html?host=standalone',
+    );
     expect(loaEntryUrlForTarget('loa-player', 'e2e')).toBe(
       'https://loa-player.e2e.circlekliftdev.com/20260605155159.d8638c8/index.html#playerKey=69acb823-3a55-4d10-b007-ebbc66b267ca',
     );
@@ -192,13 +233,15 @@ describe('LOA targets (player x environment)', () => {
   });
 
   it('loaEntryUrlForTarget falls back to the player\'s own build for an env it lacks', () => {
-    expect(loaEntryUrlForTarget('ckp2-loa', 'e2e')).toBe('http://localhost:5173/');
+    expect(loaEntryUrlForTarget('ckp2-loa', 'e2e')).toBe(
+      'http://localhost:5173/shopper.html?host=standalone',
+    );
   });
 
   it('loaEntryUrl appends the player key in the hash, or leaves the base bare when absent', () => {
     const local = loaEntryUrlForTarget('ckp2-loa', 'local');
-    expect(loaEntryUrl('9f419cb6-dev', local)).toBe(`${local}#playerKey=9f419cb6-dev`);
-    expect(loaEntryUrl('  9f419cb6-dev  ', local)).toBe(`${local}#playerKey=9f419cb6-dev`);
+    expect(loaEntryUrl('9f419cb6-dev', local)).toBe(`${local}#playerKey=9f419cb6-dev&hw=mashgin_11`);
+    expect(loaEntryUrl('  9f419cb6-dev  ', local)).toBe(`${local}#playerKey=9f419cb6-dev&hw=mashgin_11`);
     expect(loaEntryUrl('', local)).toBe(local);
   });
 
@@ -210,7 +253,7 @@ describe('LOA targets (player x environment)', () => {
   it('loaEntryUrl replaces a pinned playerKey with the configured one (never both)', () => {
     const url = loaEntryUrl('mine', loaEntryUrlForTarget('loa-player', 'e2e'));
     expect(url).toBe(
-      'https://loa-player.e2e.circlekliftdev.com/20260605155159.d8638c8/index.html#playerKey=mine',
+      'https://loa-player.e2e.circlekliftdev.com/20260605155159.d8638c8/index.html#playerKey=mine&hw=mashgin_11',
     );
     expect(url.match(/#/g)).toHaveLength(1);
   });
@@ -241,6 +284,53 @@ describe('baseRegisterType', () => {
   it('maps every other register type to itself', () => {
     for (const t of ['radiant6-canada', 'radiant6-us', 'bulloch', 'verifone-topaz', 'loa-player'] as const) {
       expect(baseRegisterType(t)).toBe(t);
+    }
+  });
+});
+
+/**
+ * CK Player 2.0's Mashgin mode is opt-in and URL-driven. These assert the three
+ * load-bearing parts of the entry URL — miss any one and the player boots looking
+ * perfectly healthy while the whole integration is inert, which is exactly the
+ * failure this suite exists to catch. Mirrors liftck_mashgin_emulator's
+ * scripts/smoke.js, which asserts the same contract for the reference tool.
+ */
+describe('CKP2.0 Mashgin mode — the standalone boot contract', () => {
+  it('embeds the shopper entry, not index.html — that is the surface Mashgin embeds', () => {
+    expect(loaEntryUrlForTarget('ckp2-loa', 'local')).toContain('/shopper.html');
+  });
+
+  // installElectronShim.ts:66 reads `host` from the query OR the hash; without it
+  // there is no StandaloneShim, hwPlatform is empty, isMashginPlatform() is false
+  // and AppInitService never starts PostMessageBridge or NgrpBasketReceiver.
+  it('opts into standalone boot with host=standalone', () => {
+    const url = new URL(loaEntryUrlForTarget('ckp2-loa', 'local'));
+    expect(url.searchParams.get('host')).toBe('standalone');
+  });
+
+  // CKP2.0's main.tsx:18-20 reads hw from window.location.hash only, so a hw in
+  // the query string is silently ignored and hwPlatform falls back to its default.
+  it('carries playerKey and hw in the hash, keeping the standalone flag in the query', () => {
+    const entry = loaEntryUrl('9f419cb6-dev', loaEntryUrlForTarget('ckp2-loa', 'local'));
+    const url = new URL(entry);
+    expect(url.searchParams.get('host')).toBe('standalone');
+    const hash = new URLSearchParams(url.hash.replace(/^#/, ''));
+    expect(hash.get('playerKey')).toBe('9f419cb6-dev');
+    expect(hash.get('hw')).toBe('mashgin_11');
+    expect(url.searchParams.get('hw')).toBeNull();
+    expect(entry.match(/#/g)).toHaveLength(1);
+  });
+
+  it('honours an explicit hw over the mashgin_11 default', () => {
+    const entry = loaEntryUrl('k', loaEntryUrlForTarget('ckp2-loa', 'local'), 'mashgin_15');
+    expect(new URLSearchParams(new URL(entry).hash.slice(1)).get('hw')).toBe('mashgin_15');
+  });
+
+  // host=standalone is a CKP2.0 concept. loa-player has no such flag and must not
+  // be handed one — it would ride along into its own URL parsing as junk.
+  it('never applies host=standalone to a loa-player target', () => {
+    for (const t of LOA_TARGETS.filter((t) => t.registerType !== 'ckp2-loa')) {
+      expect(t.entryUrl, t.registerType).not.toContain('host=standalone');
     }
   });
 });

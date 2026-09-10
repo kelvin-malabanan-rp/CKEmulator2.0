@@ -174,7 +174,7 @@ export function builtinScenarios(p: ScenarioParams): Scenario[] {
       name: 'Edit-heavy sale',
       description:
         'Scan two items, change quantity and price, void a line, then tender to the next dollar — watch the player basket track every edit and the change due.',
-      registerTypes: ['radiant6-canada', 'radiant6-us', 'bulloch', 'verifone-topaz'],
+      registerTypes: ['radiant6-canada', 'radiant6-us', 'bulloch', 'verifone-topaz', 'octane'],
       steps: [
         { kind: 'scan', code: p.itemCode },
         { kind: 'scan', code: p.itemCode2 },
@@ -264,11 +264,37 @@ export function builtinScenarios(p: ScenarioParams): Scenario[] {
       ],
     },
     {
+      id: 'octane-full-sale',
+      name: 'Octane full sale',
+      description:
+        'Scan two items and void one on an Octane lane — watch the JSON journal POST to the player over HTTP (lineIds 6, 1, 1-ABORT, 5, 55, 60, 379, 7) with no pole display in play.',
+      registerTypes: ['octane'],
+      steps: [
+        { kind: 'scan', code: p.itemCode },
+        { kind: 'scan', code: p.itemCode2 },
+        { kind: 'voidLine', lineNumber: 1 },
+        gap,
+        { kind: 'tender', tenderKind: 'cash-exact' },
+      ],
+    },
+    {
+      id: 'octane-void-ticket',
+      name: 'Octane void ticket',
+      description:
+        'Scan an item then void the whole ticket — watch the player receive `27` VOID_TRANSACTION immediately followed by the `7` end-of-transaction it expects after a void.',
+      registerTypes: ['octane'],
+      steps: [
+        { kind: 'scan', code: p.itemCode },
+        gap,
+        { kind: 'voidTicket' },
+      ],
+    },
+    {
       id: 'suspend-resume',
       name: 'Suspend / resume ticket',
       description:
         'Scan an item, suspend the ticket, resume it, then tender — watch the player clear the basket on suspend and restore it on resume.',
-      registerTypes: ['radiant6-canada', 'radiant6-us', 'verifone-topaz'],
+      registerTypes: ['radiant6-canada', 'radiant6-us', 'verifone-topaz', 'octane'],
       steps: [
         { kind: 'scan', code: p.itemCode },
         { kind: 'suspend' },

@@ -8,6 +8,7 @@ import {
   loaEnvsForRegisterType,
   defaultLoaEnvForRegisterType,
   loaEntryUrlForTarget,
+  registerTypeOptionLabel,
   type RegisterType,
   type LoaEnv,
 } from '../../../core/posTypes';
@@ -79,11 +80,7 @@ export function ConfigTab({ e }: { e: ReturnType<typeof useEmulator> }): JSX.Ele
           >
             {REGISTER_TYPES.map((r) => (
               <option key={r.value} value={r.value}>
-                {r.vjPort === 0
-                  ? `${r.label} (postMessage)`
-                  : `${r.label} (VJ ${r.vjPort} / Pole ${r.polePort}${
-                      r.scannerPort !== undefined ? ` / Scanner ${r.scannerPort}` : ''
-                    })`}
+                {registerTypeOptionLabel(r)}
               </option>
             ))}
           </select>

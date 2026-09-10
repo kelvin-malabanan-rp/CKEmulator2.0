@@ -21,6 +21,7 @@ const REGISTER_TAG: Record<RegisterType, string> = {
   bulloch: 'BUL',
   'verifone-topaz': 'TPZ',
   'verifone-topaz-lol': 'LoL',
+  octane: 'OCT',
   'loa-player': 'LOA',
   'ckp2-loa': 'CKP2',
 };
@@ -31,6 +32,7 @@ const REGISTER_TAG_TITLE: Record<RegisterType, string> = {
   bulloch: 'Bulloch (Canada, pole-only)',
   'verifone-topaz': 'Verifone Topaz (US, plaintext VJ + scanner)',
   'verifone-topaz-lol': 'Verifone Topaz — LoL VM (US, plaintext VJ + scanner)',
+  octane: 'Octane (EU, JSON journal over HTTP, no pole)',
   'loa-player': 'LOA Legacy (loa-player iframe over postMessage)',
   'ckp2-loa': 'CKP2.0 LOA Mode (CK Player 2.0 iframe over postMessage)',
 };

@@ -584,3 +584,209 @@ describe('RegisterSession — LOA (postMessage NGRP)', () => {
     expect(s.snapshot().lines).toHaveLength(0);
   });
 });
+
+describe('RegisterSession — Octane (JSON journal over HTTP)', () => {
+  /** All lineIds emitted on the vj channel, in order. */
+  function lineIds(messages: WireMessage[]): string[] {
+    return messages
+      .filter((m) => m.channel === 'vj')
+      .map((m) => (JSON.parse(m.data) as { lineId: string }).lineId);
+  }
+
+  /** The nth vj message decoded. */
+  function doc(messages: WireMessage[], index: number): Record<string, unknown> {
+    return JSON.parse(messages.filter((m) => m.channel === 'vj')[index].data) as Record<string, unknown>;
+  }
+
+  function octane(): RegisterSession {
+    return new RegisterSession({ registerType: 'octane', playerCode: 'ie-59971-1' });
+  }
+
+  it('opens the basket with lineId 6 and nothing else — Octane has no pole', () => {
+    const s = octane();
+    const msgs = s.open();
+    expect(lineIds(msgs)).toEqual(['6']);
+    expect(msgs.every((m) => m.channel === 'vj')).toBe(true);
+    expect(s.open()).toEqual([]);
+  });
+
+  it('auto-opens on the first item: lineId 6 then lineId 1', () => {
+    const s = octane();
+    const msgs = s.addItem({ code: '5449000000996', description: 'COKE 500ML', priceCents: 200 });
+    expect(lineIds(msgs)).toEqual(['6', '1']);
+    expect(doc(msgs, 1)).toMatchObject({ ean: '5449000000996', textLong: 'COKE 500ML', total: '2.00', qty: '1' });
+  });
+
+  it('sends the EXTENDED total so the player can recover the unit price', () => {
+    const s = octane();
+    const msgs = s.addItem({ code: '1', description: 'X', priceCents: 200, quantity: 3 });
+    expect(doc(msgs, 1)).toMatchObject({ total: '6.00', qty: '3' });
+  });
+
+  it('rings a fuel UPC as lineId 2 with litres instead of a barcode', () => {
+    const s = octane();
+    const msgs = s.addItem({ code: '1114500000001', description: 'miles 95', priceCents: 100, quantity: 7 });
+    expect(lineIds(msgs)).toEqual(['6', '2']);
+    expect(doc(msgs, 1)).toMatchObject({ text: 'miles 95', litres: '7', total: '7.00' });
+  });
+
+  it('voids a line as lineId 1 + ABORT with a trailing-minus total', () => {
+    const s = octane();
+    s.addItem({ code: '5449000000996', description: 'COKE 500ML', priceCents: 200 });
+    const msgs = s.voidLine(1);
+    expect(lineIds(msgs)).toEqual(['1']);
+    expect(doc(msgs, 0)).toMatchObject({ itemMask: ['ABORT'], total: '2.00-' });
+    expect(s.snapshot().subtotalCents).toBe(0);
+  });
+
+  it('says nothing when voiding a line that was never rung', () => {
+    const s = octane();
+    s.open();
+    expect(s.voidLine(99)).toEqual([]);
+  });
+
+  it('expresses a quantity change as void + re-ring (Octane has no qty event)', () => {
+    const s = octane();
+    s.addItem({ code: '1', description: 'X', priceCents: 200 });
+    const msgs = s.setQuantity(1, 3);
+    expect(lineIds(msgs)).toEqual(['1', '1']);
+    expect(doc(msgs, 0)).toMatchObject({ itemMask: ['ABORT'], total: '2.00-', qty: '1' });
+    expect(doc(msgs, 1)).toMatchObject({ itemMask: [], total: '6.00', qty: '3' });
+  });
+
+  it('expresses a price change as void + re-ring at the new price', () => {
+    const s = octane();
+    s.addItem({ code: '1', description: 'X', priceCents: 200 });
+    const msgs = s.setPrice(1, 149);
+    expect(lineIds(msgs)).toEqual(['1', '1']);
+    expect(doc(msgs, 0)).toMatchObject({ total: '2.00-', itemMask: ['ABORT'] });
+    expect(doc(msgs, 1)).toMatchObject({ total: '1.49', itemMask: [] });
+  });
+
+  it('tenders in the legacy order 5, 55, 60, 379 then closes with 7', () => {
+    const s = octane();
+    s.addItem({ code: '1', description: 'X', priceCents: 1000 });
+    const msgs = s.tender('cash-exact');
+    expect(lineIds(msgs)).toEqual(['5', '55', '60', '379', '7']);
+  });
+
+  it('tenders EXACT amounts — Octane rounding belongs to the player', () => {
+    const s = octane();
+    // 10.03 + 5% tax = 10.53; a CAD lane would round the cash total to 10.55.
+    s.addItem({ code: '1', description: 'X', priceCents: 1003 });
+    const msgs = s.tender('cash-exact');
+    expect(doc(msgs, 0)).toMatchObject({ total: '10.53', vat: '0.50' });
+    expect(doc(msgs, 1)).toMatchObject({ amount: '10.53', total: '10.53', tenderType: '0' });
+    expect(doc(msgs, 2)).toMatchObject({ amountDue: '0.00' });
+  });
+
+  it('reports change against a next-dollar tender', () => {
+    const s = octane();
+    s.addItem({ code: '1', description: 'X', priceCents: 1000 });
+    const msgs = s.tender('next-dollar');
+    // 10.00 + 5% = 10.50 → next dollar 11.00 → change 0.50.
+    expect(doc(msgs, 1)).toMatchObject({ amount: '11.00', total: '10.50' });
+    expect(doc(msgs, 2)).toMatchObject({ amountDue: '0.50-' });
+  });
+
+  it('voids the whole ticket as 27 followed by the 7 the player expects', () => {
+    const s = octane();
+    s.addItem({ code: '1', description: 'X', priceCents: 200 });
+    const msgs = s.voidTicket();
+    expect(lineIds(msgs)).toEqual(['27', '7']);
+  });
+
+  it('resets for the next sale after a tender', () => {
+    const s = octane();
+    s.addItem({ code: '1', description: 'X', priceCents: 200 });
+    s.tender('cash-exact');
+    const snap = s.snapshot();
+    expect(snap.lines).toHaveLength(0);
+    expect(snap.started).toBe(false);
+    expect(snap.tx).toBe(2);
+    // The next sale opens a fresh basket header.
+    expect(lineIds(s.addItem({ code: '1', description: 'X', priceCents: 200 }))).toEqual(['6', '1']);
+  });
+
+  it('suspends with lineId 33 and resumes silently (no Octane recall event)', () => {
+    const s = octane();
+    s.addItem({ code: '1', description: 'X', priceCents: 200 });
+    expect(lineIds(s.suspend())).toEqual(['33']);
+    // Already suspended — a second suspend says nothing.
+    expect(s.suspend()).toEqual([]);
+    // Octane has no recall line type, so resume is silent; the basket survives.
+    expect(s.resume()).toEqual([]);
+    expect(s.snapshot().lines).toHaveLength(1);
+    // Resumed, so it can be suspended again.
+    expect(lineIds(s.suspend())).toEqual(['33']);
+  });
+
+  it('has no loyalty event — Octane never identifies a member on the journal', () => {
+    const s = octane();
+    s.addItem({ code: '1', description: 'X', priceCents: 200 });
+    expect(s.loyalty('6001234567890')).toEqual([]);
+  });
+
+  it('ignores the CA French toggle (its language is the price locale)', () => {
+    const s = octane();
+    s.setLocale('fr');
+    expect(s.snapshot().locale).toBe('en');
+  });
+
+  it('books a discount-coupon UPC as lineId 3, not a basket line', () => {
+    // Legacy parity: isDiscountCode() returns early from addItem, so the coupon
+    // reduces the total instead of appearing as a product.
+    const s = octane();
+    const msgs = s.addItem({ code: 'D782600001', description: 'MEAL DEAL', priceCents: 100 });
+    expect(lineIds(msgs)).toEqual(['6', '3']);
+    expect(doc(msgs, 1)).toMatchObject({ text: 'MEAL DEAL', discount: '1.00-' });
+    expect(s.snapshot().lines).toHaveLength(0);
+  });
+
+  it('recognises all three legacy discount prefixes', () => {
+    for (const code of ['D7826123', 'D8018123', '8018123']) {
+      const s = octane();
+      expect(lineIds(s.addItem({ code, description: 'X', priceCents: 100 })), code).toEqual(['6', '3']);
+    }
+    // A UPC that merely CONTAINS one of them is still a product.
+    const s = octane();
+    expect(lineIds(s.addItem({ code: '1238018123', description: 'X', priceCents: 100 }))).toEqual(['6', '1']);
+  });
+
+  it('strips the legacy `code<sep>` scan prefix from the wire barcode', () => {
+    const s = octane();
+    const msgs = s.addItem({ code: 'code:12345', description: 'X', priceCents: 100 });
+    expect(doc(msgs, 1).ean).toBe('12345');
+    // The basket keeps the code as typed — only the wire is normalised.
+    expect(s.snapshot().lines[0].code).toBe('code:12345');
+  });
+
+  it('strips the prefix on a void too, so the void matches its add', () => {
+    const s = octane();
+    const add = s.addItem({ code: 'CODE:98765', description: 'X', priceCents: 100 });
+    const del = s.voidLine(1);
+    expect(doc(add, 1).ean).toBe('98765');
+    expect(doc(del, 0).ean).toBe('98765');
+  });
+
+  it('leaves an ordinary barcode untouched', () => {
+    const s = octane();
+    const msgs = s.addItem({ code: '5449000000996', description: 'X', priceCents: 100 });
+    expect(doc(msgs, 1).ean).toBe('5449000000996');
+  });
+
+  it('formats amounts in the configured price dialect', () => {
+    const s = new RegisterSession({ registerType: 'octane', octaneLocale: 'no' });
+    const msgs = s.addItem({ code: '1', description: 'IMSDAL', priceCents: 3000 });
+    expect(doc(msgs, 1)).toMatchObject({ total: '30,00', languageCodeIso639_1: 'no' });
+  });
+
+  it('switches dialect mid-session without disturbing the basket', () => {
+    const s = octane();
+    s.addItem({ code: '1', description: 'X', priceCents: 3000 });
+    s.setOctaneLocale('no');
+    const msgs = s.addItem({ code: '2', description: 'Y', priceCents: 3000 });
+    expect(doc(msgs, 0)).toMatchObject({ total: '30,00' });
+    expect(s.snapshot().lines).toHaveLength(2);
+  });
+});

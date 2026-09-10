@@ -52,9 +52,9 @@ describe('builtinScenarios', () => {
     expect('minAge' in scans[1]).toBe(false); // the follow-up item is unrestricted
   });
 
-  it('returns 11 scenarios, each with a name, description and non-empty registerTypes', () => {
+  it('returns 13 scenarios, each with a name, description and non-empty registerTypes', () => {
     const all = builtinScenarios(params);
-    expect(all.length).toBe(11);
+    expect(all.length).toBe(13);
     for (const s of all) {
       expect(s.name.length).toBeGreaterThan(0);
       expect(s.description.length).toBeGreaterThan(0);
@@ -175,7 +175,7 @@ describe('builtinScenarios', () => {
 
   it('edit-heavy-sale runs on all register types and ends with next-dollar tender', () => {
     const s = builtinScenarios(params).find((x) => x.id === 'edit-heavy-sale')!;
-    expect(s.registerTypes).toEqual(['radiant6-canada', 'radiant6-us', 'bulloch', 'verifone-topaz']);
+    expect(s.registerTypes).toEqual(['radiant6-canada', 'radiant6-us', 'bulloch', 'verifone-topaz', 'octane']);
     const last = s.steps[s.steps.length - 1];
     expect(last).toMatchObject({ kind: 'tender', tenderKind: 'next-dollar' });
   });

@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { formatCurrency, type PosLocale } from '../../../core/currency';
 import { REGISTER_TYPES } from '../../../core/posTypes';
 import type { useEmulator } from '../useEmulator';
 
@@ -12,10 +11,8 @@ import type { useEmulator } from '../useEmulator';
  */
 export function TransactionPanel({
   e,
-  locale,
 }: {
   e: ReturnType<typeof useEmulator>;
-  locale: PosLocale;
 }): JSX.Element {
   const { snapshot } = e;
   const hasItems = snapshot.lines.some((l) => !l.voided);
@@ -79,7 +76,7 @@ export function TransactionPanel({
                     )}
                   </td>
                   <td className="num">{li.quantity}</td>
-                  <td className="num">{formatCurrency(li.extendedCents, locale)}</td>
+                  <td className="num">{e.money(li.extendedCents)}</td>
                   <td className="lineactions">
                     <button
                       title="Add another of this item (new line)"
@@ -107,9 +104,9 @@ export function TransactionPanel({
       </div>
 
       <div className="totals">
-        <div><span>Subtotal</span><b className="num">{formatCurrency(snapshot.subtotalCents, locale)}</b></div>
-        <div><span>Tax</span><b className="num">{formatCurrency(snapshot.taxCents, locale)}</b></div>
-        <div className="grand"><span>Total</span><b className="num">{formatCurrency(snapshot.totalCents, locale)}</b></div>
+        <div><span>Subtotal</span><b className="num">{e.money(snapshot.subtotalCents)}</b></div>
+        <div><span>Tax</span><b className="num">{e.money(snapshot.taxCents)}</b></div>
+        <div className="grand"><span>Total</span><b className="num">{e.money(snapshot.totalCents)}</b></div>
       </div>
 
       <div className="tender">
@@ -126,7 +123,7 @@ export function TransactionPanel({
             <div className="voidmodalmsg">
               <div>
                 {visibleLines.length} item{visibleLines.length === 1 ? '' : 's'} ·{' '}
-                <span className="num">{formatCurrency(snapshot.totalCents, locale)}</span>
+                <span className="num">{e.money(snapshot.totalCents)}</span>
               </div>
               <span className="voidwarn">This can't be undone.</span>
             </div>

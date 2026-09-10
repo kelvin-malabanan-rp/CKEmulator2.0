@@ -1,4 +1,4 @@
-import { baseRegisterType, isLoaRegisterType } from '../../../core/posTypes';
+import { baseRegisterType, isLoaRegisterType, isOctaneRegisterType } from '../../../core/posTypes';
 import type { Theme } from '../uiSettings';
 import type { useEmulator } from '../useEmulator';
 import { ConnectionStatus } from './ConnectionStatus';
@@ -23,7 +23,11 @@ export function TopBar({
 }): JSX.Element {
   const locale = e.snapshot.locale;
   const base = baseRegisterType(e.config.registerType);
-  const bilingual = base !== 'radiant6-us' && base !== 'verifone-topaz';
+  // EN-CA/FR-CA is a Canadian lane control. The US lanes are en-US only, and
+  // Octane's language is its tenant price dialect (derived, not toggled) — the
+  // buttons did nothing there, which read as a broken control.
+  const bilingual =
+    base !== 'radiant6-us' && base !== 'verifone-topaz' && !isOctaneRegisterType(base);
   const isLoa = isLoaRegisterType(e.config.registerType);
 
   // Store/tenant identity: the registered player code + tenant when known,

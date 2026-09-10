@@ -6,7 +6,7 @@ registers (Canada **and** US) and emits the exact wire stream **CK Player
 physical POS hardware. (Formerly the *Canada POS Emulator* — it now covers more
 than Canada.)
 
-Supports four register types:
+Supports five register families:
 
 - **Radiant6 Canada** — Virtual Journal (`EventId=…`) **+** Pole Display.
 - **Radiant6 US** — same VJ/pole ports as Canada (5438/5439), but the VJ is
@@ -20,6 +20,10 @@ Supports four register types:
 - **Verifone Topaz** — US, **plaintext** VJ (no `EventId=` protocol) **+** pole
   display **+** a separate barcode-scanner feed. VJ-authoritative, cents-exact,
   en-US only.
+- **Octane** — EU (Ireland, Norway, Sweden, Denmark, Latvia). A **JSON journal
+  over HTTP**, not a socket: the emulator POSTs one document per event to the
+  player and RUNS its own HTTP server for the player's completer injects. No
+  pole display. Amounts follow the tenant's decimal dialect.
 
 It replaces the empty `Radiant6CanadaRegisterEmulator` / `BullochRegisterEmulator`
 stubs in the legacy `liftck_player` emulator module.
@@ -67,6 +71,75 @@ stubs in the legacy `liftck_player` emulator module.
   `TCP:<port>` and listens) — CKP2.0's `system.properties` Topaz block
   already ships these values.
 
+**Octane** (`octane` register type)
+- **Virtual Journal** (HTTP client, default `POST http://127.0.0.1:8023/add_salesline`):
+  one JSON document per event, CRLF-terminated, `Content-Type: application/json`.
+  `lineId` is the event discriminator — `6` basket start, `1` item add/void
+  (`itemMask:["ABORT"]`), `2` fuel add/void, `3` discount, `5` basket total,
+  `55` tender, `60` change, `379` tax in basket, `33` stored (suspended)
+  transaction, `27` void transaction, `7` end of transaction.
+- **Scan server** (HTTP **server**, default `:8020/function`): the emulator
+  listens here for the player's completer injects
+  (`{"function":{"sale":{"articleNo":"…","quantity":N}}}`) and answers `200`.
+  This is the one register type whose scanner port is **inbound** — the player
+  discovers the address from the journal POSTs it receives
+  (`scanner.octanePosHost`) and dials it.
+- **No pole display.** CK Player 2.0's octane plugin has no pole module, so no
+  pole channel is ever opened and the status panel lists only VJ + Scan-in.
+- Item lines carry the **extended** amount (`total` = unit × `qty`); CKP2.0
+  divides it back out to recover the unit price.
+- Tenders send **exact** amounts plus `tenderType:"0"`. Octane rounding lives on
+  the player (`receiptRound5Cents`, and the whole-rounded Nordic tenants), and
+  it only applies that to a cash tender — the legacy emulator omitted
+  `tenderType` entirely, so its cash tenders never rounded.
+- **Price locale** is the tenant decimal dialect and **must match the player's
+  `virtualjournal.priceLocale`** — `ie`/`en` use `1.50`; `no`/`sv`/`da`/`lv`/`pl`
+  use `1,50`. A mismatch silently scales every amount by 100.
+  It is **derived from the registered tenant** (the leading segment of the
+  player code: `pl-79989-1` → `pl` → `1,50`) and is not configurable — a manual
+  setting could only ever disagree with the player it points at. Tenant and
+  locale codes differ for two markets: Sweden is tenant `se` / locale `sv`,
+  Denmark is `dk` / `da`.
+- ⚠ **Poland is a known conflict between the two players.** CK Player 2.0 treats
+  `pl` as comma-decimal (`CurrencyManipulator.ts`, locked by its
+  `__tests__/CurrencyManipulator.test.ts`); the legacy Java player treats it as
+  dot-decimal (`CurrencyManipulator.java` takes the comma path only for fr/no +
+  ee/lv/lt/da). The emulator emits **comma** because it drives CK Player 2.0 —
+  against the legacy player a Polish amount will be 100× off, so switch the
+  picker to a dot dialect if you point it there.
+  Point the player at the emulator with:
+  ```properties
+  register.className=plugins/octane/OctaneRegister
+  virtualjournal.className=plugins/octane/OctaneVirtualJournal
+  virtualjournal.octaneServletPort=8023
+  virtualjournal.octaneServletPath=/add_salesline
+  virtualjournal.priceLocale=ie
+  scanner.className=plugins/octane/OctaneScanner
+  scanner.octanePosUrl=http://127.0.0.1:8020/function
+  ```
+
+## Currency in the emulator's own UI
+
+Basket totals, quick-key prices and log lines render in the **registered
+tenant's** currency — `pl-79989-1` shows `2,10 zł`, a CA player `$2.10`, an
+Irish one `€2.10` (and `94c` below a euro). There is nothing to configure: the
+tenant comes from the player code, so registering is all it takes.
+
+Both maps are ported verbatim from CK Player 2.0 so the two render money
+identically side by side — `TenantUtils.getDefaultLocale` (tenant → locale) and
+`RegionalCurrencyFormatter.LOCALE_FORMAT_MAP` (locale → symbol, placement,
+separators). `src/core/tenantCurrency.ts` also carries CKP2.0's
+`Currency.ts` `CURRENCY_SYMBOLS` table, and `currencySymbolsAgree()` asserts the
+two stay in step. They differ on exactly one entry: **CAD is `CA$` in
+`CURRENCY_SYMBOLS` and `$` in the `en-CA`/`fr-CA` locale configs.** The locale
+configs win, because `$` is what a Canadian lane renders and what the CA
+pole/VJ wire carries; `CA$` is the disambiguating form CKP2.0 uses in microsite
+price bubbles.
+
+This is **display only** — the wire is untouched. Radiant6/pole strings stay in
+`currency.ts` (CAD-only, byte-exact for the CA parsers) and Octane amounts go
+out as bare locale-formatted numbers with no symbol at all.
+
 Canada rules honoured: tax/balance are **pole-authoritative** (the Radiant6
 Canada VJ never emits `1005`/`1020`); cash rounds to the nearest 5¢ and emits
 `Arrondir`; fr-CA balance uses the legacy `dû` → `U+FFFD` → space substitution.
@@ -95,8 +168,9 @@ No external `liftck_player` checkout is required — the emulator ships its own:
 
 ## Register & connect (auto-detected backend)
 
-1. Pick the **register type** in the top bar (`Radiant6 Canada`, `Radiant6 US`
-   or `Bulloch`) — this sets the VJ/pole ports.
+1. Pick the **register type** in the Config tab (`Radiant6 Canada`,
+   `Radiant6 US`, `Bulloch`, `Verifone Topaz`, `Octane`, or a LOA mode) — this
+   sets the ports. Octane also gets a **Price locale** picker.
 2. Paste your **player.key** in the creds bar and click **Register**. GlobalInit
    probes the datacenters, and the matching one (e2e / dev / prod) resolves the
    **player code + backend automatically** — you don't enter a backend URL.
@@ -125,7 +199,83 @@ No external `liftck_player` checkout is required — the emulator ships its own:
   (15 s timeout) before tendering.
 - **Transaction** — the running basket + tender (Cash exact / Next $ / +$5 /
   Void).
-- **Wire Log** — everything sent on the VJ/pole channels.
+- **Wire Log** — everything sent on the VJ/pole channels (for Octane, the JSON
+  journal documents as they are POSTed).
+
+## Verifying an Octane run from the logs
+
+Octane's traffic is HTTP in both directions, so the emulator's console is the
+fastest proof it is wired up. Run the emulator from a terminal and filter:
+
+```bash
+npm run dev 2>&1 | grep -E '\[OctaneTransport\] (vj|scan)'
+```
+
+| Pattern | Confirms | If absent |
+| --- | --- | --- |
+| `\[OctaneTransport\] vj: connected` | the player's `/add_salesline` servlet answered — port and host are right | the player isn't up, or `virtualjournal.octaneServletPort` differs from the emulator's VJ port |
+| `→ vj \(HTTP 200\)` | the player accepted a journal document | a `✗ vj POST failed` line names the transport error; `⏸ vj not reachable` means it was queued, not lost |
+| `scan server listening on :8020/function` | the emulator is ready to receive injects | usually `EADDRINUSE` — a legacy emulator or a stale run still holds 8020 |
+| `← scan inject: <upc> ×<n>` | the player pushed a completer and the emulator rang it up | the player never resolved `scanner.octanePosHost`, i.e. no journal document reached it yet |
+
+To confirm a full sale reached the player, filter its lineIds in order:
+
+```bash
+npm run dev 2>&1 | grep -oE '"lineId":"(6|1|2|5|55|60|379|27|33|7)"'
+```
+
+A completed cash sale reads `6 … 1 … 5 55 60 379 7`; a voided ticket reads
+`6 … 27 7`. A missing trailing `7` means the player never closed the basket.
+
+## LOA mode (postMessage, no TCP)
+
+The two **LOA** register types drive a real player embedded as a cross-origin
+iframe over `window.postMessage` — the transport a Mashgin kiosk uses — instead of
+a TCP socket. Both ports are `0`; there is no VJ and no pole display. The emulator
+sends a **full NGRP order document** on every basket change (declarative state
+sync), not incremental POS events.
+
+- **LOA Legacy** (`loa-player`) — the deployed legacy loa-player, e2e.
+- **CKP2.0 LOA Mode** (`ckp2-loa`) — CK Player 2.0's own Mashgin mode, local.
+
+Start CK Player 2.0 with **`npm run dev:web` only** (plain vite, port pinned to
+5173). Mashgin mode never needs CK Player 2.0's own Electron shell, and
+`npm run dev` just gets in the way.
+
+### The standalone boot contract
+
+CK Player 2.0's Mashgin mode is opt-in and entirely URL-driven. Three parts of the
+entry URL are load-bearing — miss any one and the player boots looking perfectly
+healthy while the integration is silently inert:
+
+| Part | Why |
+|---|---|
+| `shopper.html` | The shopper display entry — the surface Mashgin embeds. |
+| `?host=standalone` | Standalone boot is opt-in (LIFT-2826). `maybeInstallElectronShim()` (`installElectronShim.ts:66`) installs the shim only for `host=standalone` in the query, the hash, or `VITE_HOST_MODE`. Without it: no `StandaloneShim`, empty `hwPlatform`, so `isMashginPlatform()` is false and `AppInitService` starts neither `PostMessageBridge` nor `NgrpBasketReceiver`. Nothing listens. |
+| `hw` in the **hash** | `main.tsx` reads it from `window.location.hash` only — a `hw` in the query string is ignored and `hwPlatform` falls back to its default. |
+
+`loaEntryUrl()` builds this, so the URL actually loaded is:
+
+```
+http://localhost:5173/shopper.html?host=standalone#playerKey=<uuid>&hw=mashgin_11
+```
+
+Only the hash is rewritten — a query string on the target survives. A player key is
+required: CK Player 2.0's standalone branch is gated on one, so with the field empty
+the frame says so rather than booting a player that ignores every document.
+
+### Outbound pacing
+
+Both players **silently drop** NGRP documents that arrive inside a rate-limit
+window — CK Player 2.0 at 200ms (`NgrpBasketReceiver.ts`, terminal docs included),
+loa-player at 1000ms (`basket.rateLimitingThresholdMs`). The emulator re-sends the
+whole document on every basket change, so bursts are easy to produce: a
+multi-completer `rp-inject-item` rings up one item per completer back-to-back.
+`loaSendQueue` paces outbound docs past each player's threshold, collapsing
+consecutive documents for the same open basket (they are full state, so the later
+one wins) while never collapsing a terminal doc or a basket boundary.
+
+Wire Log timestamps are enqueue time, not post time.
 
 ## Verify against CK Player 2.0
 
