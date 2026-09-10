@@ -16,6 +16,8 @@
  * the singleton holds the iframe wiring the renderer can't unit-test directly.
  */
 import type { InjectCommand } from '../../core/injectProtocol';
+import type { RegisterType } from '../../core/posTypes';
+import { LoaSendQueue, RATE_LIMIT_GAP_MS } from './loaSendQueue';
 
 /** Inbound player→emulator message shape (loa-player src/model/event/*). */
 interface InboundMessage {
@@ -73,30 +75,59 @@ function installWindowListener(): void {
   });
 }
 
+/**
+ * Actually post one document. Runs at the queue's pace, not the caller's, so it
+ * re-checks the frame: Disconnect between enqueue and drain must not post into a
+ * torn-down player.
+ */
+function postDoc(docJson: string): void {
+  if (!frame?.contentWindow) return;
+  let details: unknown;
+  try {
+    details = JSON.parse(docJson);
+  } catch {
+    return;
+  }
+  frame.contentWindow.postMessage({ name: 'rp-ngrp-doc', ts: Date.now(), details }, targetOrigin);
+  emitLog('out', 'rp-ngrp-doc', details);
+}
+
+// Both players silently drop documents that arrive inside their rate-limit window,
+// so outbound docs are paced rather than posted the instant the basket changes.
+// See loaSendQueue for the thresholds and the coalescing rules.
+const sendQueue = new LoaSendQueue(postDoc, RATE_LIMIT_GAP_MS['ckp2-loa']);
+
 /** The renderer-side LOA transport singleton (mirrors window.emulator's surface). */
 export const loaTransport = {
-  /** Register the embedded player iframe and lock the outbound origin to its own. */
-  setFrame(iframe: HTMLIFrameElement | null, entryUrl: string): void {
+  /**
+   * Register the embedded player iframe, lock the outbound origin to its own, and
+   * pace outbound docs for whichever player this is. Mounting a frame is a fresh
+   * player, so any queued document from the previous one is dropped.
+   */
+  setFrame(iframe: HTMLIFrameElement | null, entryUrl: string, registerType?: RegisterType): void {
     frame = iframe;
     try {
       targetOrigin = new URL(entryUrl).origin;
     } catch {
       targetOrigin = '*';
     }
+    // The two LOA players rate-limit at different thresholds, and baseRegisterType
+    // deliberately aliases them together — so key off the register type itself.
+    if (registerType !== undefined) {
+      sendQueue.setMinGap(RATE_LIMIT_GAP_MS[registerType === 'ckp2-loa' ? 'ckp2-loa' : 'loa-player']);
+    }
+    sendQueue.reset();
     installWindowListener();
   },
 
-  /** Send an NGRP document (JSON string) to the player as an `rp-ngrp-doc`. */
+  /**
+   * Queue an NGRP document (JSON string) for delivery as an `rp-ngrp-doc`. Returns
+   * whether a player is attached to deliver to — not whether it has been posted
+   * yet, which the pacing window decides.
+   */
   send(docJson: string): boolean {
     if (!frame?.contentWindow) return false;
-    let details: unknown;
-    try {
-      details = JSON.parse(docJson);
-    } catch {
-      return false;
-    }
-    frame.contentWindow.postMessage({ name: 'rp-ngrp-doc', ts: Date.now(), details }, targetOrigin);
-    emitLog('out', 'rp-ngrp-doc', details);
+    sendQueue.enqueue(docJson);
     return true;
   },
 

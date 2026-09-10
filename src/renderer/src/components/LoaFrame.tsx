@@ -46,12 +46,12 @@ export function LoaFrame({
 
   useEffect(() => {
     if (!connected) {
-      loaTransport.setFrame(null, entryUrl);
+      loaTransport.setFrame(null, entryUrl, registerType);
       return;
     }
-    loaTransport.setFrame(ref.current, entryUrl);
-    return () => loaTransport.setFrame(null, entryUrl);
-  }, [entryUrl, connected]);
+    loaTransport.setFrame(ref.current, entryUrl, registerType);
+    return () => loaTransport.setFrame(null, entryUrl, registerType);
+  }, [entryUrl, connected, registerType]);
 
   // A target whose URL pins its own `#playerKey=` boots without one configured,
   // so only prompt for a key when the resolved URL carries none at all.
