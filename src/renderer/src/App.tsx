@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import { PRICEBOOK, useEmulator } from './useEmulator';
 import { useScenarioRunner } from './useScenarioRunner';
 import { findAnyCompleter, findPrepayItem } from '../../core/adTriggers';
@@ -48,8 +48,6 @@ function App(): JSX.Element {
   // One runner shared by the Scenarios panel and the per-ad Silent ▶ buttons,
   // so "one run at a time" holds across both entry points.
   const r = useScenarioRunner(e);
-  const { snapshot } = e;
-  const locale = snapshot.locale;
 
   // Colour theme (dark / dimmed / light), persisted. First load with no saved
   // choice follows the OS prefers-color-scheme. Applied as data-theme on <html>
@@ -117,12 +115,12 @@ function App(): JSX.Element {
 
   const quickKeysQuad = (
     <section className="quad quad-qk">
-      <QuickKeys e={e} locale={locale} />
+      <QuickKeys e={e} />
     </section>
   );
   const transactionQuad = (
     <section className="quad quad-tx">
-      <TransactionPanel e={e} locale={locale} />
+      <TransactionPanel e={e} />
     </section>
   );
   const adsQuad = (

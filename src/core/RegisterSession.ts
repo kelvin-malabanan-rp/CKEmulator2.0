@@ -9,6 +9,7 @@ import { Basket } from './Basket';
 import { Radiant6CanadaEncoder } from './Radiant6CanadaEncoder';
 import { BullochEncoder } from './BullochEncoder';
 import { TopazEncoder } from './TopazEncoder';
+import { OctaneEncoder, DEFAULT_OCTANE_LOCALE, type OctaneLocale } from './OctaneEncoder';
 import { baseRegisterType, type WireChannel, type RegisterType } from './posTypes';
 import { buildOrderDoc, type NgrpStatus, type NgrpCustomer } from './NgrpEncoder';
 import type { PosLocale } from './currency';
@@ -19,6 +20,51 @@ export interface WireMessage {
 }
 
 const BASE62_CHARS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+
+/**
+ * Octane fuel-UPC prefix. Ported verbatim from the legacy emulator
+ * (OctaneRegisterEmulator.isFuelCode): "this is an assumption about fuel UPCs.
+ * At the time of writing this code, only fuel UPCs in Ireland start with these
+ * digits". A match routes the line to `lineId 2` (litres) instead of `lineId 1`.
+ */
+const OCTANE_FUEL_CODE_PREFIX = '11145';
+
+/** True when an Octane item code should ring as fuel rather than drystock. */
+function isOctaneFuelCode(code: string): boolean {
+  return code.startsWith(OCTANE_FUEL_CODE_PREFIX);
+}
+
+/**
+ * Discount-coupon UPC prefixes. Ported from the legacy emulator
+ * (OctaneRegisterEmulator.isDiscountCode). Scanning one of these is NOT an
+ * item: the register books a `lineId 3` discount line and adds nothing to the
+ * basket, so the coupon reduces the total instead of appearing as a product.
+ */
+const OCTANE_DISCOUNT_CODE_PREFIXES = ['D7826', 'D8018', '8018'];
+
+/** True when an Octane scan is a discount coupon rather than a product. */
+function isOctaneDiscountCode(code: string): boolean {
+  return OCTANE_DISCOUNT_CODE_PREFIXES.some((prefix) => code.startsWith(prefix));
+}
+
+/**
+ * Strip the legacy `code<sep>` scan prefix: the emulator's operators type
+ * `code:12345` to force a raw PLU, and the register rings `12345`. Ported
+ * verbatim from OctaneRegisterEmulator.addItem — a case-insensitive `code`
+ * test with a fixed `substring(5)`, so the separator character is consumed
+ * along with the four letters.
+ */
+function stripOctaneCodePrefix(code: string): string {
+  return code.toLowerCase().startsWith('code') ? code.slice(5) : code;
+}
+
+/** The line fields the Octane encoders need — satisfied by Basket's LineItem. */
+interface OctaneLine {
+  code: string;
+  description: string;
+  quantity: number;
+  unitPriceCents: number;
+}
 
 /**
  * Default order-uuid generator (LOA mode). base62 of a random 128-bit value —
@@ -84,10 +130,15 @@ export interface RegisterSessionOptions {
   /**
    * Wire protocol: 'radiant6-canada' (VJ + pole, pole-authoritative totals),
    * 'radiant6-us' (VJ + pole, VJ 1005/1020 totals, no cash rounding),
-   * 'bulloch' (pole-only) or 'verifone-topaz' (plaintext VJ + pole + scanner,
-   * VJ-authoritative, cents-exact).
+   * 'bulloch' (pole-only), 'verifone-topaz' (plaintext VJ + pole + scanner,
+   * VJ-authoritative, cents-exact) or 'octane' (EU, JSON journal over HTTP,
+   * no pole).
    */
   registerType?: RegisterType;
+  /** Octane price dialect (comma vs dot decimals). Octane only. */
+  octaneLocale?: OctaneLocale;
+  /** `{tenant}-{location}-{player}` — stamped into Octane's siteNo/posNo. */
+  playerCode?: string;
   /** Topaz basket-end ST# column (verifone-topaz only); LOA order storeId. */
   storeCode?: string;
   /** Order-uuid generator for LOA mode. Defaults to a random base62 uuid. */
@@ -98,7 +149,13 @@ export class RegisterSession {
   private readonly encoder: Radiant6CanadaEncoder;
   private readonly bulloch: BullochEncoder;
   private readonly topaz: TopazEncoder;
+  private octane: OctaneEncoder;
+  /** Octane price dialect; rebuilding the encoder is the only way to change it. */
+  private octaneLocale: OctaneLocale;
+  private readonly playerCode: string;
+  private readonly clock: (() => Date) | undefined;
   private readonly registerType: RegisterType;
+  private readonly terminalNumber: number;
   private readonly taxRateBps: number;
   private readonly operatorId: string;
   private readonly operatorName: string;
@@ -127,6 +184,7 @@ export class RegisterSession {
     // Normalize to the base protocol type: verifone-topaz-lol is plain Topaz
     // pointed at the LoL VM, so all downstream behavior checks see 'verifone-topaz'.
     this.registerType = baseRegisterType(options.registerType ?? 'radiant6-canada');
+    this.terminalNumber = options.terminalNumber ?? 1;
     this.taxRateBps = options.taxRateBps ?? 500;
     this.operatorId = options.operatorId ?? '12599';
     this.operatorName = options.operatorName ?? 'Timothy';
@@ -134,6 +192,36 @@ export class RegisterSession {
     this.orderUuidGen = options.orderUuidGen ?? defaultOrderUuidGen;
     this.tx = options.startTx ?? 1;
     this.basket = new Basket({ taxRateBps: this.taxRateBps });
+    this.octaneLocale = options.octaneLocale ?? DEFAULT_OCTANE_LOCALE;
+    this.playerCode = options.playerCode ?? '';
+    this.clock = options.clock;
+    this.octane = this.buildOctaneEncoder();
+  }
+
+  /**
+   * Build the Octane encoder for the current price locale. The locale is baked
+   * into the encoder (it drives every amount and the currency code), so a
+   * locale change rebuilds rather than mutates.
+   */
+  private buildOctaneEncoder(): OctaneEncoder {
+    return new OctaneEncoder({
+      locale: this.octaneLocale,
+      playerCode: this.playerCode,
+      operatorId: this.operatorId,
+      operatorName: this.operatorName,
+      ...(this.clock !== undefined ? { clock: this.clock } : {}),
+    });
+  }
+
+  /**
+   * Switch the Octane price dialect mid-session (the Config picker). No-op for
+   * every other register type, and never touches the in-flight basket — only
+   * how subsequent amounts are formatted on the wire.
+   */
+  setOctaneLocale(locale: OctaneLocale): void {
+    if (locale === this.octaneLocale) return;
+    this.octaneLocale = locale;
+    this.octane = this.buildOctaneEncoder();
   }
 
   /** Bulloch is pole-only (no virtual journal); Radiant6 Canada is VJ + pole. */
@@ -155,6 +243,75 @@ export class RegisterSession {
    */
   private get isLoa(): boolean {
     return this.registerType === 'loa-player';
+  }
+
+  /**
+   * Octane (EU) — a JSON journal POSTed over HTTP, one document per event.
+   * No pole display, and the player owns tax/rounding, so the emulator sends
+   * exact amounts and never emits a rounding event.
+   */
+  private get isOctane(): boolean {
+    return this.registerType === 'octane';
+  }
+
+  /**
+   * One Octane journal line. Octane rides the `vj` channel like any other
+   * journal — the HTTP framing is OctaneTransport's job, not the session's.
+   */
+  private octaneMessage(data: string): WireMessage {
+    return { channel: 'vj', data };
+  }
+
+  /**
+   * Octane item-add line: `lineId 2` (litres) for a fuel UPC, else `lineId 1`.
+   * `total` is the EXTENDED amount — the player derives the unit price.
+   */
+  private octaneItemMessage(li: OctaneLine): WireMessage {
+    const extendedCents = Math.round(li.unitPriceCents * li.quantity);
+    if (isOctaneFuelCode(li.code)) {
+      return this.octaneMessage(
+        this.octane.fuelAdd({ description: li.description, litres: li.quantity, extendedCents }),
+      );
+    }
+    return this.octaneMessage(
+      this.octane.itemAdd({
+        description: li.description,
+        barcode: stripOctaneCodePrefix(li.code),
+        quantity: li.quantity,
+        extendedCents,
+      }),
+    );
+  }
+
+  /** Octane item-void line — the add's lineId with `itemMask:["ABORT"]`. */
+  private octaneVoidMessage(li: OctaneLine): WireMessage {
+    const extendedCents = Math.round(li.unitPriceCents * li.quantity);
+    if (isOctaneFuelCode(li.code)) {
+      return this.octaneMessage(
+        this.octane.fuelVoid({ description: li.description, litres: li.quantity, extendedCents }),
+      );
+    }
+    return this.octaneMessage(
+      this.octane.itemVoid({
+        description: li.description,
+        barcode: stripOctaneCodePrefix(li.code),
+        quantity: li.quantity,
+        extendedCents,
+      }),
+    );
+  }
+
+  /**
+   * `lineId 7` end-of-transaction — the line that actually closes the basket
+   * on the player. Emitted after a tender AND after a ticket void, matching
+   * the legacy emulator (both paths run through `Emulator.endBasket()`) and
+   * what CK Player 2.0 expects ("Octane sends BASKET_END after
+   * VOID_TRANSACTION" — Register.ts).
+   */
+  private octaneEndMessage(): WireMessage {
+    return this.octaneMessage(
+      this.octane.endOfTransaction({ receiptNumber: this.tx, terminalNumber: this.terminalNumber }),
+    );
   }
 
   /** Build the single `loa`-channel message: the NGRP document for the current basket. */
@@ -183,7 +340,10 @@ export class RegisterSession {
    * emits no 1022 Arrondir VJ event (it has no VJ) — only its change math rounds.
    */
   private get cashRounding(): boolean {
-    return this.registerType !== 'radiant6-us' && !this.isTopaz;
+    // Octane rounds on the PLAYER (`receiptRound5Cents` / the whole-rounded
+    // Nordic tenants), driven off the tender's `tenderType:"0"` — so the
+    // emulator sends exact amounts and lets the player decide.
+    return this.registerType !== 'radiant6-us' && !this.isTopaz && !this.isOctane;
   }
 
   /** Topaz item-add message set: scanner echo (if coded) → VJ line → pole mirror. */
@@ -249,7 +409,9 @@ export class RegisterSession {
 
   setLocale(locale: PosLocale): void {
     // US lanes (radiant6-us, verifone-topaz) are en-US only — ignore French.
-    if ((this.registerType === 'radiant6-us' || this.isTopaz) && locale !== 'en') return;
+    // Octane's language is its price locale (setOctaneLocale), not the CA
+    // en/fr toggle, so the toggle is inert there too.
+    if ((this.registerType === 'radiant6-us' || this.isTopaz || this.isOctane) && locale !== 'en') return;
     this.locale = locale;
   }
 
@@ -268,6 +430,14 @@ export class RegisterSession {
       // order uuid; the first real action (addItem/loyalty) sends the document.
       if (!this.orderUuid) this.orderUuid = this.orderUuidGen();
       return [];
+    }
+    if (this.isOctane) {
+      // `lineId 6` receipt header opens the basket and identifies the cashier.
+      return [
+        this.octaneMessage(
+          this.octane.createBasket({ receiptNumber: this.tx, terminalNumber: this.terminalNumber }),
+        ),
+      ];
     }
     if (this.isBulloch) {
       return [{ channel: 'pole', data: this.bulloch.newSale(this.locale) }];
@@ -290,8 +460,22 @@ export class RegisterSession {
 
   addItem(input: AddItemInput): WireMessage[] {
     const messages = this.ensureStarted();
+    // A discount coupon never becomes a basket line — checked BEFORE the basket
+    // is touched, exactly as the legacy emulator returns early from addItem.
+    if (this.isOctane && isOctaneDiscountCode(input.code)) {
+      messages.push(
+        this.octaneMessage(
+          this.octane.discount({ text: input.description, amountCents: input.priceCents }),
+        ),
+      );
+      return messages;
+    }
     const li = this.basket.addItem(input);
     if (this.isLoa) return [this.loaMessage('OPEN')];
+    if (this.isOctane) {
+      messages.push(this.octaneItemMessage(li));
+      return messages;
+    }
     if (this.isBulloch) {
       messages.push(this.bullochItemMessage(li.code, li.description, li.quantity, li.unitPriceCents));
       return messages;
@@ -336,6 +520,12 @@ export class RegisterSession {
       const allVoided = lines.length > 0 && lines.every((li) => li.voided);
       return [this.loaMessage(allVoided ? 'CANCELED' : 'OPEN')];
     }
+    if (this.isOctane) {
+      const li = this.basket.find(lineNumber);
+      this.basket.voidItem(lineNumber);
+      // Nothing to say about a line that was never rung.
+      return li ? [this.octaneVoidMessage(li)] : [];
+    }
     if (this.isBulloch) {
       const description = this.basket.find(lineNumber)?.description ?? '';
       this.basket.voidItem(lineNumber);
@@ -372,6 +562,20 @@ export class RegisterSession {
     this.basket.setQuantity(lineNumber, quantity);
     const updated = this.basket.find(lineNumber);
     if (this.isLoa) return [this.loaMessage('OPEN')];
+    if (this.isOctane) {
+      // Octane has no quantity-change line type — the register aborts the old
+      // line and re-rings it, which is exactly what the void+add pair encodes.
+      const code = updated?.code ?? '';
+      return [
+        this.octaneVoidMessage({ code, description, quantity: oldQuantity, unitPriceCents: oldUnitPriceCents }),
+        this.octaneItemMessage({
+          code,
+          description,
+          quantity: updated?.quantity ?? quantity,
+          unitPriceCents: updated?.unitPriceCents ?? oldUnitPriceCents,
+        }),
+      ];
+    }
     if (this.isTopaz) {
       // Verifone has no qty-change journal event — the register voids the old
       // line and re-rings it at the new quantity.
@@ -412,6 +616,21 @@ export class RegisterSession {
     this.basket.setPrice(lineNumber, priceCents);
     const updated = this.basket.find(lineNumber);
     if (this.isLoa) return [this.loaMessage('OPEN')];
+    if (this.isOctane) {
+      // No price-override line type on Octane either — void + re-ring. (Real
+      // Octane restates prices via the dine-in/out resend; the emulator has no
+      // dine-in/out mode, so the void+add pair is the honest equivalent.)
+      const code = updated?.code ?? '';
+      return [
+        this.octaneVoidMessage({ code, description, quantity: oldQuantity, unitPriceCents: oldUnitPriceCents }),
+        this.octaneItemMessage({
+          code,
+          description,
+          quantity: updated?.quantity ?? oldQuantity,
+          unitPriceCents: priceCents,
+        }),
+      ];
+    }
     if (this.isTopaz) {
       // No price-override journal event on Verifone either — void + re-ring.
       return [
@@ -448,6 +667,15 @@ export class RegisterSession {
       this.resetForNextSale();
       return [msg];
     }
+    if (this.isOctane) {
+      // `27` void-transaction then `7` end-of-transaction — the legacy
+      // emulator's voidTicket() falls through to endBasket(), and CK Player
+      // 2.0 explicitly expects the BASKET_END that follows a void.
+      messages.push(this.octaneMessage(this.octane.voidTicket()));
+      messages.push(this.octaneEndMessage());
+      this.resetForNextSale();
+      return messages;
+    }
     if (this.isBulloch) {
       messages.push({ channel: 'pole', data: this.bulloch.clearSale() });
       this.resetForNextSale();
@@ -483,7 +711,10 @@ export class RegisterSession {
    * 12-digit UPC. Bulloch has no virtual-journal loyalty path, so it's a no-op.
    */
   loyalty(cardNumber: string, cardId?: string): WireMessage[] {
-    if (this.isBulloch) return [];
+    // Octane has no loyalty-identification line type: the only loyalty the
+    // journal carries is the resulting DISCOUNT (`793`), which the POS emits
+    // after IT resolves the member. There is nothing faithful to send here.
+    if (this.isBulloch || this.isOctane) return [];
     const messages = this.ensureStarted();
     if (this.isLoa) {
       // Attach a signed-in customer (real 4-field shape) and resend the doc.
@@ -503,6 +734,10 @@ export class RegisterSession {
   suspend(): WireMessage[] {
     if (this.isBulloch || !this.started || this.suspended) return [];
     this.suspended = true;
+    if (this.isOctane) {
+      // `33` STORED_TRANSACTION — both players map it to BASKET_SUSPEND.
+      return [this.octaneMessage(this.octane.storedTransaction())];
+    }
     if (this.isTopaz) {
       return [{ channel: 'vj', data: this.topaz.suspend(this.tx) }];
     }
@@ -513,6 +748,11 @@ export class RegisterSession {
   resume(): WireMessage[] {
     if (this.isBulloch || !this.suspended) return [];
     this.suspended = false;
+    if (this.isOctane) {
+      // Octane has no recall line type — the POS just resumes ringing, so the
+      // journal says nothing (same as Verifone).
+      return [];
+    }
     if (this.isTopaz) {
       // Topaz has no recall journal line — the register simply resumes ringing.
       return [];
@@ -548,6 +788,31 @@ export class RegisterSession {
 
     const change = Math.max(0, tendered - dueTotal);
     const roundingDelta = dueTotal - exactTotal;
+
+    if (this.isOctane) {
+      // Legacy Octane emulator order: basket total (5), tender (55), change
+      // (60), tax in basket (379) — then end-of-transaction (7), which
+      // super.tender() reaches via endBasket().
+      messages.push(
+        this.octaneMessage(
+          this.octane.basketTotal({ totalCents: exactTotal, taxCents: this.basket.taxCents() }),
+        ),
+      );
+      messages.push(
+        this.octaneMessage(
+          this.octane.tender({
+            amountCents: tendered,
+            totalCents: exactTotal,
+            description: 'CASH PAYMENT',
+          }),
+        ),
+      );
+      messages.push(this.octaneMessage(this.octane.change({ changeCents: change })));
+      messages.push(this.octaneMessage(this.octane.taxInBasket({ taxCents: this.basket.taxCents() })));
+      messages.push(this.octaneEndMessage());
+      this.resetForNextSale();
+      return messages;
+    }
 
     if (this.isTopaz) {
       // Legacy Topaz journal order: Sub Total, Tax, Total, tender MOP, then

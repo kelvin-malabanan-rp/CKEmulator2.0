@@ -5,6 +5,7 @@ import {
   DEFAULT_PLAYER_CONFIG,
   normalizePlayerConfig,
   isLoaRegisterType,
+  isOctaneRegisterType,
   type PosConfig,
   type PlayerConfig,
   type RegisterType,
@@ -31,8 +32,23 @@ import {
   type AdTriggersCompleters,
   type AdManifestEntry,
 } from '../../core/adTriggers';
-import { formatCurrency } from '../../core/currency';
 import { categorizeLog, type LogCategory } from './wireLog';
+import {
+  OCTANE_DEFAULT_SCAN_PORT,
+  OCTANE_SCAN_PATH,
+  octaneJournalUrl,
+} from '../../core/octaneEndpoints';
+import {
+  octaneLocaleForTenant,
+  OCTANE_LOCALE_LABELS,
+  DEFAULT_OCTANE_LOCALE,
+} from '../../core/OctaneEncoder';
+import {
+  formatTenantCurrency,
+  currencyForTenant,
+  tenantFromPlayerCode,
+  DEFAULT_TENANT,
+} from '../../core/tenantCurrency';
 
 export interface LogEntry {
   id: number;
@@ -121,8 +137,30 @@ export function useEmulator(): {
   resume: () => void;
   /** UPC/PLU → resolved pricebook item, for name lookups (e.g. ad trigger/completer items). */
   pricebookIndex: Map<string, ResolvedItem>;
+  /** Registered tenant code (`pl`), or the CA default before registration. */
+  tenant: string;
+  /**
+   * Format integer cents for DISPLAY in the tenant's currency — the single
+   * money formatter the UI uses, so nothing can render a stale `$` on a
+   * Polish lane. Wire formatting lives in the encoders, not here.
+   */
+  money: (cents: number) => string;
 } {
   const [config, setConfig] = useState<PosConfig>(DEFAULT_POS_CONFIG);
+  // Declared before the session so the registered tenant can seed it. The
+  // tenant is the leading segment of the player code (`pl-79989-1` → `pl`) and
+  // is the ONLY source for the Octane price dialect and the UI's currency —
+  // both are derived, never picked by hand.
+  const [globalInit, setGlobalInit] = useState<GlobalInitConfig | null>(null);
+  const [globalInitError, setGlobalInitError] = useState<string | null>(null);
+  // The tenant IS the player code's prefix. GlobalInit normally reports it
+  // directly; deriving it from the code is the fallback for a config that
+  // omits the `tenant=` property.
+  const tenant =
+    globalInit?.tenant?.trim().toLowerCase() ||
+    tenantFromPlayerCode(globalInit?.playerCode) ||
+    DEFAULT_TENANT;
+  const octaneLocale = octaneLocaleForTenant(tenant) ?? DEFAULT_OCTANE_LOCALE;
 
   // One session per lane. Rebuilt when the register type changes so the wire
   // protocol matches (Radiant6 Canada = VJ + pole, Bulloch = pole-only). The
@@ -131,12 +169,20 @@ export function useEmulator(): {
   const sessionTypeRef = useRef<RegisterType | undefined>(undefined);
   if (sessionRef.current === null || sessionTypeRef.current !== config.registerType) {
     const previous = sessionRef.current;
-    const next = new RegisterSession({ registerType: config.registerType });
+    const next = new RegisterSession({
+      registerType: config.registerType,
+      octaneLocale,
+      ...(globalInit ? { playerCode: globalInit.playerCode } : {}),
+    });
     if (previous) next.setLocale(previous.locale);
     sessionRef.current = next;
     sessionTypeRef.current = config.registerType;
   }
   const session = sessionRef.current;
+
+  // Keep the live session on the tenant's dialect. Registering a different
+  // player re-derives it without discarding an in-flight basket.
+  session.setOctaneLocale(octaneLocale);
 
   const [snapshot, setSnapshot] = useState<SessionSnapshot>(() => session.snapshot());
   const [status, setStatus] = useState<Status>(idleStatus);
@@ -281,8 +327,6 @@ export function useEmulator(): {
 
   // GlobalInit registration result — the datacenter the player.key resolved to
   // (e2e / dev / prod), with that datacenter's endpoint URLs.
-  const [globalInit, setGlobalInit] = useState<GlobalInitConfig | null>(null);
-  const [globalInitError, setGlobalInitError] = useState<string | null>(null);
   // Real pricebook.url resolved from the portal setting groups (GlobalInit omits
   // it). Preferred over the derived guess when present. Cleared on re-register.
   const [settingsPricebookUrl, setSettingsPricebookUrl] = useState<string | null>(null);
@@ -493,12 +537,24 @@ export function useEmulator(): {
       logSys('LOA — loading the embedded player (postMessage). Reconnect re-boots it.');
       return;
     }
+    if (isOctaneRegisterType(config.registerType)) {
+      // Octane has no sockets: we POST the journal to the player and listen for
+      // its injects ourselves, so name both endpoints rather than VJ/pole ports.
+      logSys(
+        `Connecting to Octane journal ${octaneJournalUrl(config.host, config.vjPort)} ` +
+          `(listening for injects on :${config.scannerPort ?? OCTANE_DEFAULT_SCAN_PORT}${OCTANE_SCAN_PATH}, ` +
+          `${octaneLocale} prices)…`,
+      );
+      setAttempted(true);
+      setStatus(await window.emulator.connect(config));
+      return;
+    }
     const scannerNote = config.scannerPort !== undefined ? `, scanner ${config.scannerPort}` : '';
     logSys(`Connecting to ${config.host} (VJ ${config.vjPort}, pole ${config.polePort}${scannerNote})…`);
     setAttempted(true);
     const s = await window.emulator.connect(config);
     setStatus(s);
-  }, [config, logSys]);
+  }, [config, octaneLocale, logSys]);
 
   const disconnect = useCallback(async () => {
     // LOA: unmount the embedded player (no TCP transport to close).
@@ -517,6 +573,14 @@ export function useEmulator(): {
   // Most recent error-category line, surfaced in the status-dot tooltip. Log is
   // newest-first, so the first error match is the latest one.
   const lastError = useMemo(() => log.find((l) => l.category === 'error')?.text ?? null, [log]);
+
+  // The UI's single money formatter. Keyed on the registered tenant, so a
+  // Polish player shows `2,10 zł` and a Canadian one `$2.10` with nothing to
+  // configure. `snapshot.locale` only matters for Canada (en-CA vs fr-CA).
+  const money = useCallback(
+    (cents: number): string => formatTenantCurrency(cents, tenant, snapshot.locale),
+    [tenant, snapshot.locale],
+  );
 
   const setLocale = useCallback(
     (l: PosLocale) => {
@@ -646,6 +710,20 @@ export function useEmulator(): {
     [downloadFor, playerConfig.playerKey, logSys],
   );
 
+  // Announce the derived dialect/currency once per tenant, so the wire format
+  // in play is visible in the log rather than implied.
+  const announcedTenant = useRef<string | null>(null);
+  useEffect(() => {
+    if (!globalInit?.tenant || announcedTenant.current === tenant) return;
+    announcedTenant.current = tenant;
+    const detected = octaneLocaleForTenant(tenant);
+    logSys(
+      `Tenant "${tenant}": UI currency ${currencyForTenant(tenant)} ` +
+        `(${formatTenantCurrency(150, tenant)}); Octane price locale ` +
+        `${detected ? OCTANE_LOCALE_LABELS[detected] : `not an Octane market — using ${DEFAULT_OCTANE_LOCALE}`}.`,
+    );
+  }, [globalInit?.tenant, tenant, logSys]);
+
   // Load the pricebook on mount and whenever the player code or pricebook dir
   // changes — so once hydration resolves the player code, a previously-downloaded
   // pricebook (userData cache) is restored instead of the bundled sample. Keyed
@@ -770,12 +848,14 @@ export function useEmulator(): {
         // Log the void distinctly (item count + total) so it's traceable in the
         // wire log after the basket has been cleared.
         const items = snapshot.lines.filter((l) => !l.voided).length;
-        logSys(`VOID: ${items} item${items === 1 ? '' : 's'}, ${formatCurrency(snapshot.totalCents, snapshot.locale)}`);
+        logSys(`VOID: ${items} item${items === 1 ? '' : 's'}, ${money(snapshot.totalCents)}`);
         dispatch(session.voidTicket());
       },
       suspend: () => dispatch(session.suspend()),
       resume: () => dispatch(session.resume()),
       pricebookIndex,
+      tenant,
+      money,
     }),
     [
       snapshot,
@@ -813,6 +893,8 @@ export function useEmulator(): {
       registerPlayer,
       globalInit,
       globalInitError,
+      tenant,
+      money,
     ],
   );
 }

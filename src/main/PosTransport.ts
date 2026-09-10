@@ -10,6 +10,7 @@ import net from 'net';
 import { baseRegisterType } from '../core/posTypes';
 import type { Channel, ConnState, Status, PosConfig, RegisterType } from '../core/posTypes';
 import { parseInjectCommand, type InjectCommand } from '../core/injectProtocol';
+import type { RegisterTransport } from './RegisterTransport';
 
 export type { Channel, ConnState, Status } from '../core/posTypes';
 
@@ -32,7 +33,7 @@ interface Connection {
 /** Max messages held per channel while disconnected; beyond this the oldest is dropped. */
 const MAX_PENDING = 100;
 
-export class PosTransport {
+export class PosTransport implements RegisterTransport {
   private readonly host: string;
   private readonly reconnectDelayMs: number;
   private readonly registerType: RegisterType;

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { dotState, type DotState } from '../connState';
 import { summarizeConnections, type ConnChannel } from '../connSummary';
-import { isLoaRegisterType, loaEntryUrlForTarget } from '../../../core/posTypes';
+import { isLoaRegisterType, isOctaneRegisterType, loaEntryUrlForTarget } from '../../../core/posTypes';
+import { OCTANE_DEFAULT_SCAN_PORT, OCTANE_JOURNAL_PATH, OCTANE_SCAN_PATH } from '../../../core/octaneEndpoints';
 import type { useEmulator } from '../useEmulator';
 
 /** Per-channel detail line shown in the popover. */
@@ -43,12 +44,30 @@ export function ConnectionStatus({ e }: { e: ReturnType<typeof useEmulator> }): 
   // (Connect) and red when not (Disconnect / before connecting), so the Connect
   // button is the way to (re-)boot the embedded player.
   const isLoa = isLoaRegisterType(e.config.registerType);
+  // Octane speaks HTTP in both directions and has no pole: the VJ is a servlet
+  // we POST to on the player, and "Scan-in" is the server WE run for the
+  // player's completer injects. Listing Pole here would report a permanently
+  // red endpoint that this register type simply doesn't have.
+  const isOctane = isOctaneRegisterType(e.config.registerType);
   const endpoints: Endpoint[] = isLoa
     ? [
         {
           label: 'postMessage',
           state: e.loaConnected ? 'connected' : 'error',
           target: new URL(loaEntryUrlForTarget(e.config.registerType, e.config.loaEnv)).host,
+        },
+      ]
+    : isOctane
+    ? [
+        {
+          label: 'VJ',
+          state: dotState(e.status.vj, e.attempted),
+          target: `${e.config.host}:${e.config.vjPort}${OCTANE_JOURNAL_PATH}`,
+        },
+        {
+          label: 'Scan-in',
+          state: dotState(e.status.scanner, e.attempted),
+          target: `:${e.config.scannerPort ?? OCTANE_DEFAULT_SCAN_PORT}${OCTANE_SCAN_PATH}`,
         },
       ]
     : [

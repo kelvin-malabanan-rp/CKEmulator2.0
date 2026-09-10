@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import { formatCurrency, type PosLocale } from '../../../core/currency';
 import { usePersistedState } from '../usePersistedState';
 import { QK_PINS_KEY, DEFAULT_QK_PINS, parsePins, serializePins } from '../uiSettings';
 import { filterQuickKeys, sortPinned, togglePin } from '../quickKeyFilter';
@@ -16,10 +15,8 @@ const QK_PER_PAGE = 9; // 3 columns × 3 rows — mirrors the Ads grid below it
  */
 export function QuickKeys({
   e,
-  locale,
 }: {
   e: ReturnType<typeof useEmulator>;
-  locale: PosLocale;
 }): JSX.Element {
   const [tab, setTab] = useState(0);
   const [page, setPage] = useState(0);
@@ -72,7 +69,7 @@ export function QuickKeys({
         >
           {hasName && <span className="keyplu">{entry.upc}</span>}
           <span className="keyname">{entry.description}</span>
-          <span className="keyprice">{formatCurrency(entry.priceCents, locale)}</span>
+          <span className="keyprice">{e.money(entry.priceCents)}</span>
         </button>
         <button
           className={`pin${pinned ? ' on' : ''}`}

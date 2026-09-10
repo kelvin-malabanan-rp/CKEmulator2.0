@@ -52,8 +52,29 @@ export const LOA_TARGETS: ReadonlyArray<{
     entryUrl:
       'https://loa-player.e2e.circlekliftdev.com/20260605155159.d8638c8/index.html#playerKey=69acb823-3a55-4d10-b007-ebbc66b267ca',
   },
-  { registerType: 'ckp2-loa', env: 'local', entryUrl: 'http://localhost:5173/' },
+  // Three parts of this URL are load-bearing, all verified against CK Player 2.0:
+  //   - `shopper.html` — the shopper display entry, the surface Mashgin embeds.
+  //     (`index.html` boots the same bundle but names the wrong surface.)
+  //   - `?host=standalone` — standalone boot is opt-in (LIFT-2826).
+  //     maybeInstallElectronShim() (installElectronShim.ts:66) installs the
+  //     standalone branch only for host=standalone in the query, the hash, or
+  //     VITE_HOST_MODE. Without it you get a generic player: no StandaloneShim,
+  //     empty hwPlatform, so isMashginPlatform() is false and AppInitService
+  //     (:435, :1047) starts neither NgrpBasketReceiver nor PostMessageBridge.
+  //     Nothing listens, and the player looks like it loaded fine.
+  //   - `hw` in the HASH, added by loaEntryUrl — main.tsx:18-20 reads it from
+  //     window.location.hash only.
+  // Start the target with `npm run dev:web` (plain vite, port pinned to 5173);
+  // Mashgin mode never needs CK Player 2.0's own Electron shell.
+  { registerType: 'ckp2-loa', env: 'local', entryUrl: 'http://localhost:5173/shopper.html?host=standalone' },
 ];
+
+/**
+ * Default Mashgin hardware token. Matches CK Player 2.0's own standalone default
+ * (standaloneInit.ts:279) and the loa-player Player.ts fallback (Hardware.MASHGIN_11),
+ * so both LOA players boot the same way when nothing overrides it.
+ */
+export const LOA_DEFAULT_HW = 'mashgin_11';
 
 /** The environments the given LOA player is deployed to, in table order. */
 export function loaEnvsForRegisterType(type: RegisterType): LoaEnv[] {
@@ -92,13 +113,22 @@ export function loaEntryUrlForTarget(type: RegisterType, env: LoaEnv): string {
  *
  * A configured key always wins: any hash the base URL carries is dropped first, so
  * a pinned key can never survive alongside the one we asked for.
+ *
+ * `hw` is appended alongside the key and sets the player's hardware platform —
+ * `mashgin_11` by default, which is what makes CK Player 2.0's
+ * `isMashginPlatform(hwPlatform)` gate pass. Only the hash is rewritten: any query
+ * string the base URL carries (notably CK Player 2.0's `?host=standalone`) survives
+ * untouched.
  */
-export function loaEntryUrl(playerKey: string, baseUrl: string): string {
+export function loaEntryUrl(playerKey: string, baseUrl: string, hw: string = LOA_DEFAULT_HW): string {
   const key = playerKey.trim();
   if (!key) return baseUrl;
   const hashAt = baseUrl.indexOf('#');
   const base = hashAt >= 0 ? baseUrl.slice(0, hashAt) : baseUrl;
-  return `${base}#playerKey=${key}`;
+  // hw rides in the hash beside the key, never in the query: CK Player 2.0's
+  // main.tsx reads it from window.location.hash only, and loa-player's
+  // Player.ts does the same. A query-string hw is silently ignored by both.
+  return `${base}#playerKey=${key}&hw=${encodeURIComponent(hw)}`;
 }
 
 /**
@@ -114,6 +144,14 @@ export function loaEntryUrl(playerKey: string, baseUrl: string): string {
  * shares the encoder, scenarios, ports and en-US-only locale — only the
  * default connection host differs.
  *
+ * octane is the EU POS (Ireland, Norway, Sweden, Denmark, Latvia). It is the
+ * only family whose journal is HTTP rather than a socket: the emulator POSTs
+ * one JSON document per event to the player's `/add_salesline` servlet on
+ * `vjPort`, and RUNS its own HTTP server on `scannerPort` for the player's
+ * completer injects (`POST /function`). There is no pole display — CK Player
+ * 2.0's octane plugin has no pole module, so `polePort` is 0 and no pole
+ * channel is ever opened. See OctaneTransport / OctaneEncoder.
+ *
  * loa-player and ckp2-loa are the two LOA players — the legacy loa-player and
  * CK Player 2.0's own LOA mode. They speak the identical postMessage/NGRP
  * protocol (ckp2-loa normalizes to 'loa-player' via baseRegisterType, exactly as
@@ -126,6 +164,7 @@ export type RegisterType =
   | 'bulloch'
   | 'verifone-topaz'
   | 'verifone-topaz-lol'
+  | 'octane'
   | 'loa-player'
   | 'ckp2-loa';
 
@@ -180,6 +219,12 @@ export const REGISTER_TYPES: ReadonlyArray<{
     scannerPort: 10000,
     defaultHost: LOL_VM_HOST,
   },
+  // Octane: HTTP, not TCP. `vjPort` 8023 is the player's `/add_salesline`
+  // servlet we POST to (CKP2.0 `virtualjournal.octaneServletPort`);
+  // `scannerPort` 8020 is the port the EMULATOR listens on for the player's
+  // injects (its `scanner.octanePosUrl` → `http://<pos>:8020/function`) — the
+  // only register type where scannerPort is inbound. No pole display.
+  { value: 'octane', label: 'Octane', vjPort: 8023, polePort: 0, scannerPort: 8020 },
   // LOA modes: no TCP ports. The player is embedded as a cross-origin iframe and
   // driven over postMessage (see LOA_TARGETS / loaTransport). Ports are 0 so
   // nothing tries to open a socket; isLoaRegisterType() gates that. Which build
@@ -191,6 +236,25 @@ export const REGISTER_TYPES: ReadonlyArray<{
 /** True for LOA mode — the postMessage/iframe transport, not a TCP register. */
 export function isLoaRegisterType(type: RegisterType): boolean {
   return baseRegisterType(type) === 'loa-player';
+}
+
+/** True for Octane — the HTTP journal + inbound scan-server transport, not TCP. */
+export function isOctaneRegisterType(type: RegisterType): boolean {
+  return baseRegisterType(type) === 'octane';
+}
+
+/**
+ * The register-type picker's option text: the label plus the endpoints that
+ * type actually uses, so the dropdown never advertises a port nothing opens
+ * (LOA has none; Octane has no pole and its scanner port is inbound).
+ */
+export function registerTypeOptionLabel(entry: (typeof REGISTER_TYPES)[number]): string {
+  if (isLoaRegisterType(entry.value)) return `${entry.label} (postMessage)`;
+  if (isOctaneRegisterType(entry.value)) {
+    return `${entry.label} (HTTP VJ ${entry.vjPort} / Scan-in ${entry.scannerPort})`;
+  }
+  const scanner = entry.scannerPort !== undefined ? ` / Scanner ${entry.scannerPort}` : '';
+  return `${entry.label} (VJ ${entry.vjPort} / Pole ${entry.polePort}${scanner})`;
 }
 
 /** Look up the VJ/pole (and, for Topaz, scanner) ports for a register type. */
@@ -215,7 +279,11 @@ export interface PosConfig {
   host: string;
   vjPort: number;
   polePort: number;
-  /** Barcode-scanner feed port — only used by verifone-topaz. */
+  /**
+   * Barcode-scanner feed port. OUTBOUND for verifone-topaz (a socket the
+   * emulator dials); INBOUND for octane (the HTTP port the emulator listens
+   * on for the player's injects). Unset for every other type.
+   */
   scannerPort?: number;
   registerType: RegisterType;
   /**
@@ -224,6 +292,10 @@ export interface PosConfig {
    */
   loaEnv: LoaEnv;
 }
+
+// NOTE: the Octane price dialect is deliberately NOT part of PosConfig. It is
+// derived from the registered tenant (octaneLocaleForTenant), never chosen by
+// hand — a manual setting can only ever disagree with the player it points at.
 
 export const DEFAULT_POS_CONFIG: PosConfig = {
   host: '127.0.0.1',
