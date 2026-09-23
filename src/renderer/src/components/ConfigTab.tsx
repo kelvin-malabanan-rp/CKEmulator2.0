@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import {
   REGISTER_TYPES,
+  DEFAULT_PLAYER_CONFIG,
   LOA_ENV_LABELS,
   portsForRegisterType,
   hostForRegisterType,
@@ -130,6 +131,34 @@ export function ConfigTab({ e }: { e: ReturnType<typeof useEmulator> }): JSX.Ele
             value={e.playerConfig.playerKey}
             placeholder="player.key"
             onChange={(ev) => e.setPlayerConfig({ ...e.playerConfig, playerKey: ev.target.value })}
+          />
+        </label>
+
+        {/* The signed-on cashier. The leaderboard keys standings rows as
+            {store}-{operatorId}-{operatorName}, so these must match a cashier
+            that actually has scores or the player shows no "You" row. Takes
+            effect on the next transaction's sign-on, not on save. */}
+        <label className="cfgfield">
+          <span className="cfglbl">Operator ID</span>
+          <input
+            className="opid mono"
+            type="text"
+            value={e.playerConfig.operatorId}
+            placeholder={DEFAULT_PLAYER_CONFIG.operatorId}
+            title="Cashier id sent on sign-on (OperatorId) — applies to the next transaction"
+            onChange={(ev) => e.setPlayerConfig({ ...e.playerConfig, operatorId: ev.target.value })}
+          />
+        </label>
+
+        <label className="cfgfield">
+          <span className="cfglbl">Operator name</span>
+          <input
+            className="opname mono"
+            type="text"
+            value={e.playerConfig.operatorName}
+            placeholder={DEFAULT_PLAYER_CONFIG.operatorName}
+            title="Cashier name sent on sign-on (OperatorName) — applies to the next transaction"
+            onChange={(ev) => e.setPlayerConfig({ ...e.playerConfig, operatorName: ev.target.value })}
           />
         </label>
 

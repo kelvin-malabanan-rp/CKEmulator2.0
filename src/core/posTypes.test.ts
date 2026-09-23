@@ -33,6 +33,27 @@ describe('normalizePlayerConfig', () => {
     });
   });
 
+  it('defaults the cashier to the Java emulator operator (12399/TimC)', () => {
+    expect(DEFAULT_PLAYER_CONFIG.operatorId).toBe('12399');
+    expect(DEFAULT_PLAYER_CONFIG.operatorName).toBe('TimC');
+  });
+
+  it('trims the operator', () => {
+    expect(normalizePlayerConfig({ operatorId: '  40123  ', operatorName: '  Dana  ' })).toMatchObject({
+      operatorId: '40123',
+      operatorName: 'Dana',
+    });
+  });
+
+  it('falls back rather than yielding an empty operator', () => {
+    // A blank OperatorName makes CK Player 2.0's parser omit the field, and its
+    // Register guard then keeps the PREVIOUS cashier — which reads as the
+    // emulator being ignored. Never put an empty operator on the wire.
+    const cfg = normalizePlayerConfig({ operatorId: '   ', operatorName: '' });
+    expect(cfg.operatorId).toBe(DEFAULT_PLAYER_CONFIG.operatorId);
+    expect(cfg.operatorName).toBe(DEFAULT_PLAYER_CONFIG.operatorName);
+  });
+
   it('falls back to the default backend URL when blank', () => {
     expect(normalizePlayerConfig({ backendBaseUrl: '   ' }).backendBaseUrl).toBe(DEFAULT_PLAYER_CONFIG.backendBaseUrl);
   });
@@ -55,6 +76,20 @@ describe('normalizePlayerConfig', () => {
 describe('register types & ports', () => {
   it('maps Radiant6 Canada to VJ 5438 / pole 5439', () => {
     expect(portsForRegisterType('radiant6-canada')).toEqual({ vjPort: 5438, polePort: 5439 });
+  });
+
+  it('maps Radiant6 US to VJ 5438 with NO pole display', () => {
+    // CK Player 2.0's US plugin (electron/plugins/radiant6) ships no
+    // pole-display module — Radiant6Register.ts: "NO pole display in prod US
+    // Radiant6 (realTimeInputs=virtualjournal only)" — and the legacy Java
+    // emulator overrides updatePole to skip the device ("no pole display on
+    // R6"). Opening 5439 there is an endless ECONNREFUSED retry loop.
+    expect(portsForRegisterType('radiant6-us')).toEqual({ vjPort: 5438, polePort: 0 });
+  });
+
+  it('leaves the pole out of the picker label when the type has none', () => {
+    const us = REGISTER_TYPES.find((r) => r.value === 'radiant6-us')!;
+    expect(registerTypeOptionLabel(us)).toBe('Radiant6 US (VJ 5438)');
   });
 
   it('maps Bulloch to VJ 5438 / pole 5440 (canonical legacy port)', () => {
@@ -151,16 +186,12 @@ describe('register types & ports', () => {
     expect(isLoaRegisterType('bulloch')).toBe(false);
   });
 
-  it('maps Radiant6 US to VJ 5438 / pole 5439 (shared Radiant6 ports)', () => {
-    expect(portsForRegisterType('radiant6-us')).toEqual({ vjPort: 5438, polePort: 5439 });
-  });
-
   it('registers Radiant6 US with its label and ports', () => {
     expect(REGISTER_TYPES.find((r) => r.value === 'radiant6-us')).toEqual({
       value: 'radiant6-us',
       label: 'Radiant6 US',
       vjPort: 5438,
-      polePort: 5439,
+      polePort: 0,
     });
   });
 

@@ -18,6 +18,7 @@
  * Every message carries a `lineId` — the Octane line-type number (see
  * `liftck_player/doc/octane/events.md`) — which is what both parsers switch on.
  */
+import { DEFAULT_PLAYER_CONFIG } from './posTypes';
 
 /** Octane line-type numbers (`lineId`), the event discriminator on the wire. */
 export const OCTANE_LINE_ID = {
@@ -269,8 +270,11 @@ export class OctaneEncoder {
     const parts = (options.playerCode ?? '').split('-');
     this.siteNumber = parts[1] ?? '';
     this.posNumber = parts[2] ?? '';
-    this.operatorId = options.operatorId ?? '12599';
-    this.operatorName = options.operatorName ?? 'Timothy';
+    // RegisterSession always passes the session's operator through; the
+    // fallback shares DEFAULT_PLAYER_CONFIG so a directly-built encoder can
+    // never sign on as a different cashier than the rest of the emulator.
+    this.operatorId = options.operatorId ?? DEFAULT_PLAYER_CONFIG.operatorId;
+    this.operatorName = options.operatorName ?? DEFAULT_PLAYER_CONFIG.operatorName;
     this.clock = options.clock ?? ((): Date => new Date());
     this.receiptUuidGen = options.receiptUuidGen ?? ((): string => crypto.randomUUID());
   }

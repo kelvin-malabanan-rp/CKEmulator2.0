@@ -162,6 +162,16 @@ export function useEmulator(): {
     DEFAULT_TENANT;
   const octaneLocale = octaneLocaleForTenant(tenant) ?? DEFAULT_OCTANE_LOCALE;
 
+  // Declared before the session so a persisted operator seeds the first
+  // sign-on instead of arriving one transaction late.
+  const [playerConfig, setPlayerConfigState] = useState<PlayerConfig>(() => {
+    try {
+      return normalizePlayerConfig(JSON.parse(localStorage.getItem(PLAYER_CFG_KEY) ?? 'null'));
+    } catch {
+      return DEFAULT_PLAYER_CONFIG;
+    }
+  });
+
   // One session per lane. Rebuilt when the register type changes so the wire
   // protocol matches (Radiant6 Canada = VJ + pole, Bulloch = pole-only). The
   // cashier/shopper locale carries across the switch.
@@ -172,6 +182,8 @@ export function useEmulator(): {
     const next = new RegisterSession({
       registerType: config.registerType,
       octaneLocale,
+      operatorId: playerConfig.operatorId,
+      operatorName: playerConfig.operatorName,
       ...(globalInit ? { playerCode: globalInit.playerCode } : {}),
     });
     if (previous) next.setLocale(previous.locale);
@@ -183,6 +195,10 @@ export function useEmulator(): {
   // Keep the live session on the tenant's dialect. Registering a different
   // player re-derives it without discarding an in-flight basket.
   session.setOctaneLocale(octaneLocale);
+  // Same for the cashier: the session is only rebuilt on a register-type
+  // change, so an edited operator reaches the lane here. It lands on the next
+  // registerOpen (the next transaction), not on save.
+  session.setOperator({ id: playerConfig.operatorId, name: playerConfig.operatorName });
 
   const [snapshot, setSnapshot] = useState<SessionSnapshot>(() => session.snapshot());
   const [status, setStatus] = useState<Status>(idleStatus);
@@ -195,13 +211,6 @@ export function useEmulator(): {
   const [loaConnected, setLoaConnected] = useState(false);
   // Increments on each completer inject from the player (CKP2 completing/adding).
   const [injectSeq, setInjectSeq] = useState(0);
-  const [playerConfig, setPlayerConfigState] = useState<PlayerConfig>(() => {
-    try {
-      return normalizePlayerConfig(JSON.parse(localStorage.getItem(PLAYER_CFG_KEY) ?? 'null'));
-    } catch {
-      return DEFAULT_PLAYER_CONFIG;
-    }
-  });
   const [log, setLog] = useState<LogEntry[]>([]);
   const logId = useRef(0);
 
@@ -550,7 +559,10 @@ export function useEmulator(): {
       return;
     }
     const scannerNote = config.scannerPort !== undefined ? `, scanner ${config.scannerPort}` : '';
-    logSys(`Connecting to ${config.host} (VJ ${config.vjPort}, pole ${config.polePort}${scannerNote})…`);
+    // polePort 0 = no pole display on this register (Radiant6 US) — don't log
+    // a port the transport deliberately never opens.
+    const poleNote = config.polePort > 0 ? `, pole ${config.polePort}` : '';
+    logSys(`Connecting to ${config.host} (VJ ${config.vjPort}${poleNote}${scannerNote})…`);
     setAttempted(true);
     const s = await window.emulator.connect(config);
     setStatus(s);

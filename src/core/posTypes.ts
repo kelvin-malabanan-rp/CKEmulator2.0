@@ -208,7 +208,12 @@ export const REGISTER_TYPES: ReadonlyArray<{
   defaultHost?: string;
 }> = [
   { value: 'radiant6-canada', label: 'Radiant6 Canada', vjPort: 5438, polePort: 5439 },
-  { value: 'radiant6-us', label: 'Radiant6 US', vjPort: 5438, polePort: 5439 },
+  // Radiant6 US is VJ-only: CK Player 2.0's US plugin (electron/plugins/
+  // radiant6) has no pole-display module — Radiant6Register: "NO pole display
+  // in prod US Radiant6 (realTimeInputs=virtualjournal only)" — and the legacy
+  // Java emulator overrides updatePole to skip the device ("no pole display on
+  // R6"). polePort 0 keeps the transport off a port nothing listens on.
+  { value: 'radiant6-us', label: 'Radiant6 US', vjPort: 5438, polePort: 0 },
   { value: 'bulloch', label: 'Bulloch', vjPort: 5438, polePort: 5440 },
   { value: 'verifone-topaz', label: 'Verifone Topaz', vjPort: 10002, polePort: 10001, scannerPort: 10000 },
   {
@@ -254,7 +259,10 @@ export function registerTypeOptionLabel(entry: (typeof REGISTER_TYPES)[number]):
     return `${entry.label} (HTTP VJ ${entry.vjPort} / Scan-in ${entry.scannerPort})`;
   }
   const scanner = entry.scannerPort !== undefined ? ` / Scanner ${entry.scannerPort}` : '';
-  return `${entry.label} (VJ ${entry.vjPort} / Pole ${entry.polePort}${scanner})`;
+  // polePort 0 = this register has no pole display (Radiant6 US); don't
+  // advertise a port the transport will never open.
+  const pole = entry.polePort > 0 ? ` / Pole ${entry.polePort}` : '';
+  return `${entry.label} (VJ ${entry.vjPort}${pole}${scanner})`;
 }
 
 /** Look up the VJ/pole (and, for Topaz, scanner) ports for a register type. */
@@ -314,12 +322,24 @@ export interface PlayerConfig {
   playerCode: string;
   playerKey: string;
   backendBaseUrl: string;
+  /**
+   * Signed-on cashier. The leaderboard backend keys cashiers as
+   * `{store}-{operatorId}-{operatorName}`, so these two must match the
+   * standings row the player is expected to find — an operator nobody has
+   * played as silently falls back to no "You" row and no personal best.
+   */
+  operatorId: string;
+  operatorName: string;
 }
 
 export const DEFAULT_PLAYER_CONFIG: PlayerConfig = {
   playerCode: '',
   playerKey: '',
   backendBaseUrl: 'https://player.circlekliftdev.com/api/lift/',
+  // The Java emulator's system.properties operator (12399/TimC), so a fresh
+  // install lands on the same cashier the legacy emulator signed on as.
+  operatorId: '12399',
+  operatorName: 'TimC',
 };
 
 /** Apply defaults + trim to a partial player config (e.g. from persisted storage). */
@@ -330,6 +350,13 @@ export function normalizePlayerConfig(partial: Partial<PlayerConfig> | null | un
     playerKey: trimmed(partial?.playerKey, DEFAULT_PLAYER_CONFIG.playerKey),
     backendBaseUrl:
       trimmed(partial?.backendBaseUrl, DEFAULT_PLAYER_CONFIG.backendBaseUrl) || DEFAULT_PLAYER_CONFIG.backendBaseUrl,
+    // Both fall back rather than going out blank: an empty OperatorName makes
+    // the player's parser omit the field, and CK Player 2.0's Register guard
+    // then keeps the PREVIOUS cashier — which reads as the emulator being
+    // ignored rather than as a bad setting.
+    operatorId: trimmed(partial?.operatorId, DEFAULT_PLAYER_CONFIG.operatorId) || DEFAULT_PLAYER_CONFIG.operatorId,
+    operatorName:
+      trimmed(partial?.operatorName, DEFAULT_PLAYER_CONFIG.operatorName) || DEFAULT_PLAYER_CONFIG.operatorName,
   };
 }
 

@@ -10,6 +10,7 @@ import {
   octaneTimestamp,
   type OctaneLocale,
 } from './OctaneEncoder';
+import { DEFAULT_PLAYER_CONFIG } from './posTypes';
 
 /** Fixed clock so timestamp/date/time fields are deterministic. */
 const CLOCK = (): Date => new Date(2026, 8, 9, 14, 5, 3, 250);
@@ -18,8 +19,8 @@ function encoder(locale: OctaneLocale = 'ie'): OctaneEncoder {
   return new OctaneEncoder({
     locale,
     playerCode: 'ie-59971-1',
-    operatorId: '12599',
-    operatorName: 'Timothy',
+    operatorId: '12399',
+    operatorName: 'TimC',
     clock: CLOCK,
     receiptUuidGen: () => 'fixed-uuid',
   });
@@ -138,8 +139,8 @@ describe('OctaneEncoder.createBasket', () => {
     expect(msg).toMatchObject({
       lineId: OCTANE_LINE_ID.CREATE_BASKET,
       shiftNo: '1',
-      operatorNo: '12599',
-      operatorName: 'Timothy',
+      operatorNo: '12399',
+      operatorName: 'TimC',
       receiptNo: '1438',
       terminalNo: '1',
       siteNo: '59971',
@@ -361,5 +362,20 @@ describe('OctaneEncoder locale wiring', () => {
     );
     expect(msg.total).toBe('30,00');
     expect(msg.languageCodeIso639_1).toBe('no');
+  });
+});
+
+describe('OctaneEncoder operator defaults', () => {
+  it('defaults to the Java emulator cashier, matching RegisterSession', () => {
+    // The encoder and RegisterSession must not drift: both take their default
+    // from DEFAULT_PLAYER_CONFIG, so an Octane lane can never sign on as a
+    // different cashier than the Radiant6 lane next to it.
+    const msg = decode(new OctaneEncoder().createBasket({ receiptNumber: 1, terminalNumber: 1 }));
+    expect(msg).toMatchObject({
+      operatorNo: DEFAULT_PLAYER_CONFIG.operatorId,
+      operatorName: DEFAULT_PLAYER_CONFIG.operatorName,
+    });
+    expect(msg.operatorNo).toBe('12399');
+    expect(msg.operatorName).toBe('TimC');
   });
 });
