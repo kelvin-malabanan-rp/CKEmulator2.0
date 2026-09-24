@@ -246,9 +246,26 @@ describe('RegisterSession — radiant6-us', () => {
     const s = us();
     s.setLocale('fr');
     expect(s.locale).toBe('en');
-    const msgs = s.addItem({ code: '1', description: 'A', priceCents: 194 });
-    const poleBalance = msgs.filter((m) => m.channel === 'pole').pop()!;
-    expect(poleBalance.data).toContain('Balance Due');
+    expect(eventIds(s.addItem({ code: '1', description: 'A', priceCents: 194 }))).toContain('1011');
+  });
+
+  it('emits no pole frames — US Radiant6 has no pole display', () => {
+    // CK Player 2.0's US plugin has no pole-display module (Radiant6Register:
+    // "NO pole display in prod US Radiant6"), and the legacy Java emulator
+    // overrides updatePole to skip the device ("no pole display on R6") — it
+    // only refreshes its own on-screen preview.
+    const s = us();
+    const opened = s.open();
+    const added = s.addItem({ code: '1', description: 'A', priceCents: 194 });
+    const tendered = s.tender('cash-exact');
+    for (const msgs of [opened, added, tendered]) {
+      expect(msgs.filter((m) => m.channel === 'pole')).toEqual([]);
+    }
+  });
+
+  it('canada still drives the pole (regression)', () => {
+    const msgs = new RegisterSession().addItem({ code: '1', description: 'A', priceCents: 194 });
+    expect(msgs.filter((m) => m.channel === 'pole').pop()!.data).toContain('Balance Due');
   });
 
   it('canada emits no 1005/1020 (regression)', () => {
@@ -788,5 +805,59 @@ describe('RegisterSession — Octane (JSON journal over HTTP)', () => {
     const msgs = s.addItem({ code: '2', description: 'Y', priceCents: 3000 });
     expect(doc(msgs, 0)).toMatchObject({ total: '30,00' });
     expect(s.snapshot().lines).toHaveLength(2);
+  });
+});
+
+describe('RegisterSession — cashier operator', () => {
+  /** The 1001 sign-on frame (Radiant6), which is where the operator reaches the player. */
+  function signOn(messages: WireMessage[]): string {
+    return messages.find((m) => m.channel === 'vj' && m.data.includes('EventId=1001'))!.data;
+  }
+
+  it('signs on as the Java emulator operator by default (12399/TimC)', () => {
+    expect(signOn(new RegisterSession().open())).toContain('OperatorId=12399,OperatorName=TimC');
+  });
+
+  it('signs on as the configured operator', () => {
+    const s = new RegisterSession({ operatorId: '40123', operatorName: 'Dana' });
+    expect(signOn(s.open())).toContain('OperatorId=40123,OperatorName=Dana');
+  });
+
+  it('setOperator takes effect on the next transaction, not the in-flight one', () => {
+    const s = new RegisterSession();
+    const first = s.addItem({ code: '1', description: 'X', priceCents: 100 });
+    s.setOperator({ id: '40123', name: 'Dana' });
+    // The lane is already open — nothing re-signs mid-basket.
+    expect(signOn(first)).toContain('OperatorId=12399,OperatorName=TimC');
+    s.tender('cash-exact');
+    const second = s.addItem({ code: '2', description: 'Y', priceCents: 100 });
+    expect(signOn(second)).toContain('OperatorId=40123,OperatorName=Dana');
+  });
+
+  it('setOperator falls back rather than signing on blank', () => {
+    const s = new RegisterSession({ operatorId: '40123', operatorName: 'Dana' });
+    s.setOperator({ id: '  ', name: '   ' });
+    expect(signOn(s.open())).toContain('OperatorId=12399,OperatorName=TimC');
+  });
+
+  it('Topaz logs the configured cashier name', () => {
+    const s = new RegisterSession({ registerType: 'verifone-topaz', operatorId: '40123', operatorName: 'Dana' });
+    const cashier = s.open().find((m) => m.channel === 'vj')!;
+    expect(cashier.data).toContain('CSH: Dana');
+  });
+
+  it('Octane carries the session operator into the lineId 6 header', () => {
+    const s = new RegisterSession({ registerType: 'octane', playerCode: 'ie-59971-1', operatorId: '40123', operatorName: 'Dana' });
+    const header = JSON.parse(s.open()[0].data) as Record<string, unknown>;
+    expect(header).toMatchObject({ operatorNo: '40123', operatorName: 'Dana' });
+  });
+
+  it('Octane picks up setOperator on the next basket', () => {
+    const s = new RegisterSession({ registerType: 'octane', playerCode: 'ie-59971-1' });
+    s.addItem({ code: '1', description: 'X', priceCents: 100 });
+    s.tender('cash-exact');
+    s.setOperator({ id: '40123', name: 'Dana' });
+    const header = JSON.parse(s.open()[0].data) as Record<string, unknown>;
+    expect(header).toMatchObject({ operatorNo: '40123', operatorName: 'Dana' });
   });
 });

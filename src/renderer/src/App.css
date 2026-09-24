@@ -513,7 +513,12 @@ select.regtype { width: 420px; max-width: 100%; white-space: nowrap; overflow: h
    as an <input> rather than a div so the font metrics and box match .pkey
    without hand-tuning; readOnly still allows selecting/copying the address. */
 .cfgfield input.host { width: 150px; background: var(--input-bg); border: 1px solid var(--border); color: var(--text); border-radius: var(--r-ctrl); padding: 7px 9px; }
-.cfgfield input.pkey { width: 340px; max-width: 100%; background: var(--input-bg); border: 1px solid var(--border); color: var(--text); border-radius: var(--r-ctrl); padding: 7px 9px; }
+.cfgfield input.pkey, .cfgfield input.opid, .cfgfield input.opname { max-width: 100%; background: var(--input-bg); border: 1px solid var(--border); color: var(--text); border-radius: var(--r-ctrl); padding: 7px 9px; }
+.cfgfield input.pkey { width: 340px; }
+/* Cashier id/name are short values, so they get narrow boxes and ride on
+   the same wrapped row as the player key instead of stretching it. */
+.cfgfield input.opid { width: 110px; }
+.cfgfield input.opname { width: 160px; }
 .cfgregister { background: var(--accent); color: var(--accent-text); border: 0; border-radius: var(--r-ctrl); padding: 8px 16px; font-weight: 600; cursor: pointer; }
 .cfgregister:hover { background: var(--accent-hover); }
 .initrow { display: flex; align-items: center; gap: 8px; width: 100%; background: none; border: 0; padding: 4px 0; cursor: pointer; color: var(--text-muted); text-align: left; }

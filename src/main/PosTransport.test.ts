@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import net from 'net';
 import { PosTransport } from './PosTransport';
 
@@ -119,6 +119,38 @@ describe('PosTransport', () => {
     expect(transport.send('vj', 'EventId=1001\r\n')).toBe(false);
     await wait(20);
     expect(vj.received()).toBe('');
+  });
+
+  it('for the radiant6-us register type connects the VJ only — US has no pole display', async () => {
+    const vj = await listen();
+    const pole = await listen();
+    servers.push(vj.server, pole.server);
+
+    // Watch for a connect attempt: a dropped send and a disconnected state look
+    // the same whether the channel is skipped or stuck retrying.
+    const connectLog = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    transport = new PosTransport({
+      host: '127.0.0.1',
+      vjPort: vj.port,
+      polePort: 0,
+      registerType: 'radiant6-us',
+      reconnectDelayMs: 10,
+    });
+    await transport.connect();
+    await wait(50);
+    // Snapshot before restoring — mockRestore() clears the recorded calls.
+    const logged = connectLog.mock.calls.flat().map(String);
+    connectLog.mockRestore();
+
+    // Port 0 means "this register type has no such device" — never opened, so
+    // the US lane can't sit in an ECONNREFUSED reconnect loop against a pole
+    // CK Player 2.0's US plugin never listens on.
+    expect(transport.status()).toEqual({ vj: 'connected', pole: 'disconnected', scanner: 'disconnected' });
+    expect(logged.some((l) => l.includes('pole: connecting'))).toBe(false);
+    expect(transport.send('pole', 'DISPLAY\r\n')).toBe(false);
+    await wait(20);
+    expect(pole.received()).toBe('');
   });
 
   it('for the verifone-topaz register type connects VJ, pole AND scanner', async () => {

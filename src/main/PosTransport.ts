@@ -63,14 +63,19 @@ export class PosTransport implements RegisterTransport {
    * Begin connecting the channels this register uses. Resolves once the
    * attempts are initiated. Bulloch is pole-only (no virtual journal), so the
    * VJ socket is never opened — avoids endless ECONNREFUSED retries against a
-   * port the Bulloch player doesn't listen on. Only Verifone Topaz has a
-   * separate barcode-scanner feed, so the scanner socket is opened for that
-   * type alone (and only when a scannerPort is configured).
+   * port the Bulloch player doesn't listen on. A channel whose port is 0 is
+   * one this register type doesn't have (Radiant6 US has no pole display) and
+   * is skipped for the same reason. Only Verifone Topaz has a separate
+   * barcode-scanner feed, so the scanner socket is opened for that type alone
+   * (and only when a scannerPort is configured).
    */
   async connect(): Promise<void> {
     this.closed = false;
     if (this.registerType !== 'bulloch') this.openChannel('vj');
-    this.openChannel('pole');
+    // polePort 0 means the register type has no pole display at all (Radiant6
+    // US — CK Player 2.0's US plugin has no pole module), so opening it would
+    // be the same endless ECONNREFUSED retry the Bulloch VJ carve-out avoids.
+    if (this.conns.pole.port > 0) this.openChannel('pole');
     if (this.registerType === 'verifone-topaz' && this.conns.scanner.port > 0) {
       this.openChannel('scanner');
     }

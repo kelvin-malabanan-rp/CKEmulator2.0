@@ -10,7 +10,7 @@ import { Radiant6CanadaEncoder } from './Radiant6CanadaEncoder';
 import { BullochEncoder } from './BullochEncoder';
 import { TopazEncoder } from './TopazEncoder';
 import { OctaneEncoder, DEFAULT_OCTANE_LOCALE, type OctaneLocale } from './OctaneEncoder';
-import { baseRegisterType, type WireChannel, type RegisterType } from './posTypes';
+import { baseRegisterType, DEFAULT_PLAYER_CONFIG, type WireChannel, type RegisterType } from './posTypes';
 import { buildOrderDoc, type NgrpStatus, type NgrpCustomer } from './NgrpEncoder';
 import type { PosLocale } from './currency';
 
@@ -157,8 +157,9 @@ export class RegisterSession {
   private readonly registerType: RegisterType;
   private readonly terminalNumber: number;
   private readonly taxRateBps: number;
-  private readonly operatorId: string;
-  private readonly operatorName: string;
+  /** Signed-on cashier. Mutable — setOperator retargets a live session. */
+  private operatorId: string;
+  private operatorName: string;
   private readonly storeCode: string;
   private basket: Basket;
   private tx: number;
@@ -186,8 +187,8 @@ export class RegisterSession {
     this.registerType = baseRegisterType(options.registerType ?? 'radiant6-canada');
     this.terminalNumber = options.terminalNumber ?? 1;
     this.taxRateBps = options.taxRateBps ?? 500;
-    this.operatorId = options.operatorId ?? '12599';
-    this.operatorName = options.operatorName ?? 'Timothy';
+    this.operatorId = options.operatorId ?? DEFAULT_PLAYER_CONFIG.operatorId;
+    this.operatorName = options.operatorName ?? DEFAULT_PLAYER_CONFIG.operatorName;
     this.storeCode = options.storeCode ?? 'AB123';
     this.orderUuidGen = options.orderUuidGen ?? defaultOrderUuidGen;
     this.tx = options.startTx ?? 1;
@@ -221,6 +222,27 @@ export class RegisterSession {
   setOctaneLocale(locale: OctaneLocale): void {
     if (locale === this.octaneLocale) return;
     this.octaneLocale = locale;
+    this.octane = this.buildOctaneEncoder();
+  }
+
+  /**
+   * Retarget the signed-on cashier (the Config operator fields). The session is
+   * only rebuilt when the register type changes, so without this a saved
+   * operator would never reach a live session. Takes effect on the NEXT
+   * registerOpen — i.e. the next transaction, not the in-flight basket.
+   *
+   * Blank values fall back to the default rather than going out empty: an
+   * empty OperatorName makes the player's parser omit the field, and CK Player
+   * 2.0's Register guard then keeps the previous cashier.
+   */
+  setOperator({ id, name }: { id: string; name: string }): void {
+    const nextId = id.trim() || DEFAULT_PLAYER_CONFIG.operatorId;
+    const nextName = name.trim() || DEFAULT_PLAYER_CONFIG.operatorName;
+    if (nextId === this.operatorId && nextName === this.operatorName) return;
+    this.operatorId = nextId;
+    this.operatorName = nextName;
+    // The operator is baked into the Octane encoder (it stamps the lineId 6
+    // header), so it rebuilds exactly as a locale change does.
     this.octane = this.buildOctaneEncoder();
   }
 
@@ -415,9 +437,26 @@ export class RegisterSession {
     this.locale = locale;
   }
 
-  /** Pole window reflecting the current running balance (incl. tax). */
-  private balanceMessage(): WireMessage {
-    return { channel: 'pole', data: this.encoder.poleBalance(this.basket.totalCents(), this.locale) };
+  /**
+   * Whether this register drives a pole display. US Radiant6 does NOT: CK
+   * Player 2.0's US plugin ships no pole-display module (`plugins/radiant6`,
+   * Radiant6Register: "NO pole display in prod US Radiant6 —
+   * realTimeInputs=virtualjournal only"), and the legacy Java emulator
+   * overrides `updatePole` to refresh its own screen and skip the device
+   * ("no pole display on R6"). Emitting pole frames on a US lane only writes
+   * bytes nothing listens for.
+   */
+  private get hasPole(): boolean {
+    return this.registerType !== 'radiant6-us';
+  }
+
+  /**
+   * Pole window reflecting the current running balance (incl. tax) — empty on
+   * a register with no pole display, so callers can spread it unconditionally.
+   */
+  private balanceMessages(): WireMessage[] {
+    if (!this.hasPole) return [];
+    return [{ channel: 'pole', data: this.encoder.poleBalance(this.basket.totalCents(), this.locale) }];
   }
 
   /** Open the lane if not already open (idempotent). Returns any open messages. */
@@ -450,7 +489,7 @@ export class RegisterSession {
     return [
       { channel: 'vj', data: this.encoder.registerOpen({ tx: this.tx, operatorId: this.operatorId, operatorName: this.operatorName }) },
       { channel: 'vj', data: this.encoder.basketStarted({ tx: this.tx }) },
-      this.balanceMessage(),
+      ...this.balanceMessages(),
     ];
   }
 
@@ -506,8 +545,10 @@ export class RegisterSession {
       }),
     });
     if (this.vjTotals) messages.push(...this.vjTotalsMessages());
-    messages.push({ channel: 'pole', data: this.encoder.poleItem(li.quantity, li.description, li.unitPriceCents, this.locale) });
-    messages.push(this.balanceMessage());
+    if (this.hasPole) {
+      messages.push({ channel: 'pole', data: this.encoder.poleItem(li.quantity, li.description, li.unitPriceCents, this.locale) });
+    }
+    messages.push(...this.balanceMessages());
     return messages;
   }
 
@@ -550,7 +591,7 @@ export class RegisterSession {
     return [
       { channel: 'vj', data: this.encoder.itemVoid({ tx: this.tx, lineNumber }) },
       ...(this.vjTotals ? this.vjTotalsMessages() : []),
-      this.balanceMessage(),
+      ...this.balanceMessages(),
     ];
   }
 
@@ -604,7 +645,7 @@ export class RegisterSession {
     return [
       { channel: 'vj', data: this.encoder.qtyChange({ tx: this.tx, lineNumber, oldQuantity, newQuantity: quantity, extendedPriceCents: extended, locale: this.locale }) },
       ...(this.vjTotals ? this.vjTotalsMessages() : []),
-      this.balanceMessage(),
+      ...this.balanceMessages(),
     ];
   }
 
@@ -651,7 +692,7 @@ export class RegisterSession {
     return [
       { channel: 'vj', data: this.encoder.priceOverride({ tx: this.tx, lineNumber, newUnitPriceCents: priceCents, locale: this.locale }) },
       ...(this.vjTotals ? this.vjTotalsMessages() : []),
-      this.balanceMessage(),
+      ...this.balanceMessages(),
     ];
   }
 
@@ -702,7 +743,7 @@ export class RegisterSession {
     });
 
     this.resetForNextSale();
-    messages.push(this.balanceMessage()); // pole balance now 0
+    messages.push(...this.balanceMessages()); // pole balance now 0
     return messages;
   }
 
@@ -759,7 +800,7 @@ export class RegisterSession {
     }
     return [
       { channel: 'vj', data: this.encoder.basketResume({ tx: this.tx, storedTx: this.tx }) },
-      this.balanceMessage(),
+      ...this.balanceMessages(),
     ];
   }
 
@@ -858,7 +899,7 @@ export class RegisterSession {
       messages.push({ channel: 'vj', data: this.encoder.rounding({ tx: this.tx, amountCents: roundingDelta, locale: this.locale }) });
     }
     messages.push({ channel: 'vj', data: this.encoder.tender({ tx: this.tx, amountCents: tendered, mopDescription: 'Cash', locale: this.locale }) });
-    messages.push({ channel: 'pole', data: this.encoder.poleChange(change, this.locale) });
+    if (this.hasPole) messages.push({ channel: 'pole', data: this.encoder.poleChange(change, this.locale) });
     messages.push({ channel: 'vj', data: this.encoder.change({ tx: this.tx, amountCents: change, locale: this.locale }) });
     messages.push({
       channel: 'vj',

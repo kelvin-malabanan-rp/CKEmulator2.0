@@ -9,8 +9,8 @@ than Canada.)
 Supports five register families:
 
 - **Radiant6 Canada** — Virtual Journal (`EventId=…`) **+** Pole Display.
-- **Radiant6 US** — same VJ/pole ports as Canada (5438/5439), but the VJ is
-  authoritative: it additionally emits `1005` subtotal + `1020` tax after every
+- **Radiant6 US** — same VJ port as Canada (5438) but **no pole display**, and
+  the VJ is authoritative: it additionally emits `1005` subtotal + `1020` tax after every
   item mutation and stamps `SubtotalAmount`/`TaxAmount`/`TotalAmount` on the
   `1002` basket end. No Arrondir — cash totals are exact. en-US only (the FR
   toggle is hidden). Legacy US loyalty cards use the `D7826`/`D8018`/`8018`
@@ -39,11 +39,18 @@ stubs in the legacy `liftck_player` emulator module.
   item windows, **en-CA and fr-CA**.
 
 **Radiant6 US** (`radiant6-us` register type)
-- Same VJ + pole streams and ports as Canada, plus the VJ-authoritative totals:
+- Same VJ stream and port as Canada (5438), plus the VJ-authoritative totals:
   `1020` running tax then `1005` running subtotal (legacy order) after every
   item add/void/qty/price change, and `SubtotalAmount`/`TaxAmount`/`TotalAmount`
   on the `1002` basket end. No `1022` Arrondir — cash tenders use exact totals.
   Locale is fixed to en-US.
+- **No pole display.** CK Player 2.0's US plugin (`electron/plugins/radiant6`)
+  ships no pole-display module — "NO pole display in prod US Radiant6
+  (realTimeInputs=virtualjournal only)" — and the legacy Java emulator
+  overrides `updatePole` to refresh its own screen and skip the device ("no
+  pole display on R6"). So `polePort` is `0`, **no pole socket is opened**, no
+  pole frames are emitted, and the status panel lists VJ only. (Before this,
+  the US lane retried `5439` forever with `ECONNREFUSED`.)
 
 **Bulloch** (`bulloch` register type)
 - **Pole Display only** (TCP, default `127.0.0.1:5440`): `[C000] NEWSALE LANG=…`,
@@ -174,7 +181,12 @@ No external `liftck_player` checkout is required — the emulator ships its own:
 2. Paste your **player.key** in the creds bar and click **Register**. GlobalInit
    probes the datacenters, and the matching one (e2e / dev / prod) resolves the
    **player code + backend automatically** — you don't enter a backend URL.
-3. Click **Connect** (status dots turn green).
+3. Optionally set the **Operator ID / Operator name** (default `12399` / `TimC`,
+   the Java emulator's `system.properties` cashier). The leaderboard keys
+   cashiers as `{store}-{operatorId}-{operatorName}`, so these must match a
+   cashier that has standings or the player shows no "You" row. The change
+   reaches the player on the **next transaction's sign-on** — no reconnect.
+4. Click **Connect** (status dots turn green).
 
 ## UI
 

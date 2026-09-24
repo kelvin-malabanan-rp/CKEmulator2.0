@@ -71,8 +71,15 @@ export function ConnectionStatus({ e }: { e: ReturnType<typeof useEmulator> }): 
         },
       ]
     : [
-        { label: 'VJ', state: dotState(e.status.vj, e.attempted), target: `${e.config.host}:${e.config.vjPort}` },
-        { label: 'Pole', state: dotState(e.status.pole, e.attempted), target: `${e.config.host}:${e.config.polePort}` },
+        // Bulloch is pole-only (the transport never opens a VJ socket) and
+        // Radiant6 US has no pole display, so each lane lists only the
+        // channels it actually opens — never a permanently red endpoint.
+        ...(e.config.registerType !== 'bulloch'
+          ? [{ label: 'VJ', state: dotState(e.status.vj, e.attempted), target: `${e.config.host}:${e.config.vjPort}` }]
+          : []),
+        ...(e.config.polePort > 0
+          ? [{ label: 'Pole', state: dotState(e.status.pole, e.attempted), target: `${e.config.host}:${e.config.polePort}` }]
+          : []),
         ...(e.config.scannerPort !== undefined
           ? [{ label: 'Scanner', state: dotState(e.status.scanner, e.attempted), target: `${e.config.host}:${e.config.scannerPort}` }]
           : []),
