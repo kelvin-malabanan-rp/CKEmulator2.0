@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  adCardMode,
   extractTriggersCompleters,
   findAnyCompleter,
   findPrepayItem,
@@ -224,6 +225,36 @@ describe('findAnyCompleter', () => {
     expect(findAnyCompleter([ad('1', [])])).toBeNull();
     expect(findAnyCompleter([ad('1', [{ code: '105' }])], '105')).toBeNull();
     expect(findAnyCompleter([])).toBeNull();
+  });
+});
+
+describe('adCardMode', () => {
+  const detail = (triggers: AdItem[], completers: AdItem[]): AdTriggersCompleters => ({
+    id: '1',
+    name: 'ad 1',
+    template: 'Basket Offer',
+    triggers,
+    completers,
+    completerConditionTypes: [],
+    silentCapable: false,
+  });
+
+  it('is pending while the ad detail has not been fetched', () => {
+    expect(adCardMode(undefined)).toBe('pending');
+  });
+
+  it('keeps the Triggers / Completers buttons when the ad has trigger items', () => {
+    expect(adCardMode(detail([{ code: '028200009654' }], []))).toBe('buttons');
+    expect(adCardMode(detail([{ code: '028200009654' }], [{ code: '049000000443' }]))).toBe('buttons');
+  });
+
+  it('makes a trigger-less ad with completers the trigger itself', () => {
+    expect(adCardMode(detail([], [{ code: '049000000443' }]))).toBe('selfTrigger');
+  });
+
+  it('still makes a trigger-less ad the trigger itself when it has no completers either', () => {
+    // Regression: these used to render as a dead card with no click handler.
+    expect(adCardMode(detail([], []))).toBe('selfTrigger');
   });
 });
 

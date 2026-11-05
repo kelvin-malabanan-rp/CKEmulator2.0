@@ -170,6 +170,25 @@ export function isInteractiveTemplate(template: string | undefined): boolean {
   return t !== '' && t !== 'static image or video';
 }
 
+/**
+ * How one ad's card behaves in the Triggers & Completers grid.
+ *
+ * - `pending`     — details not fetched yet; nothing is known about its items.
+ * - `buttons`     — has trigger items: the usual Triggers / Completers buttons.
+ * - `selfTrigger` — no trigger items: there is no UPC to scan, so the card
+ *   itself is the trigger. Clicking it fires the ad and opens its completers —
+ *   where scanning a real trigger lands. Every trigger-less ad is clickable,
+ *   including ones with no completers (the modal then says there's nothing to
+ *   scan); a card with no buttons and no click handler is just a dead card.
+ */
+export type AdCardMode = 'pending' | 'buttons' | 'selfTrigger';
+
+/** Pick the card mode for one ad from its (possibly unfetched) detail. */
+export function adCardMode(detail: AdTriggersCompleters | undefined): AdCardMode {
+  if (!detail) return 'pending';
+  return detail.triggers.length > 0 ? 'buttons' : 'selfTrigger';
+}
+
 /** The real prepay item pulled from the loaded ads, plus how to complete its ad. */
 export interface PrepayAdPick {
   /** UPC and description of the prepay item itself. */
