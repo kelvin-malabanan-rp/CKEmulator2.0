@@ -3,13 +3,11 @@ import {
   REGISTER_TYPES,
   DEFAULT_PLAYER_CONFIG,
   LOA_ENV_LABELS,
-  portsForRegisterType,
-  hostForRegisterType,
   isLoaRegisterType,
   loaEnvsForRegisterType,
-  defaultLoaEnvForRegisterType,
   loaEntryUrlForTarget,
   registerTypeOptionLabel,
+  withRegisterType,
   type RegisterType,
   type LoaEnv,
 } from '../../../core/posTypes';
@@ -62,22 +60,7 @@ export function ConfigTab({ e }: { e: ReturnType<typeof useEmulator> }): JSX.Ele
             className="regtype"
             value={e.config.registerType}
             title="Register type — sets the VJ/pole ports automatically"
-            onChange={(ev) => {
-              const registerType = ev.target.value as RegisterType;
-              // scannerPort cleared first so a stale Topaz port can't survive a
-              // switch to a scanner-less type; host follows the type's default.
-              // loaEnv is re-resolved because the two LOA players ship to
-              // different environments — keeping the old one could name a build
-              // that doesn't exist for the newly selected player.
-              e.setConfig({
-                ...e.config,
-                registerType,
-                host: hostForRegisterType(registerType),
-                scannerPort: undefined,
-                loaEnv: defaultLoaEnvForRegisterType(registerType, e.config.loaEnv),
-                ...portsForRegisterType(registerType),
-              });
-            }}
+            onChange={(ev) => e.setConfig(withRegisterType(e.config, ev.target.value as RegisterType))}
           >
             {REGISTER_TYPES.map((r) => (
               <option key={r.value} value={r.value}>
@@ -162,10 +145,32 @@ export function ConfigTab({ e }: { e: ReturnType<typeof useEmulator> }): JSX.Ele
           />
         </label>
 
-        {/* LOA fields are narrower than the TCP host row, so the buttons ride up
-            beside them. Break the flex row first so Register drops down and sits
-            alongside the pricebook button instead. */}
-        {isLoa && <div className="cfgbreak" aria-hidden="true" />}
+        {/* Pricebook overrides — blank uses the player's own settings. */}
+        <label className="cfgfield">
+          <span className="cfglbl">Pricebook URL</span>
+          <input
+            className="pburl mono"
+            type="text"
+            value={e.playerConfig.pricebookUrl}
+            title="Overrides the player's pricebook.url on the next download — blank uses the player's setting"
+            onChange={(ev) => e.setPlayerConfig({ ...e.playerConfig, pricebookUrl: ev.target.value })}
+          />
+        </label>
+
+        <label className="cfgfield">
+          <span className="cfglbl">Pricebook location</span>
+          <input
+            className="pbloc mono"
+            type="text"
+            value={e.playerConfig.pricebookDevLocation}
+            title="locationCode sent on the pricebook download — blank uses the registered player's location"
+            onChange={(ev) => e.setPlayerConfig({ ...e.playerConfig, pricebookDevLocation: ev.target.value })}
+          />
+        </label>
+
+        {/* Break the flex row so Register always sits alongside the pricebook
+            button on its own line, never stranded beside the fields. */}
+        <div className="cfgbreak" aria-hidden="true" />
 
         <button
           className="cfgregister"

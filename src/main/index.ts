@@ -12,7 +12,7 @@ import { isOctaneRegisterType, type PosConfig } from '../core/posTypes';
 import { gunzipSync, inflateSync, inflateRawSync } from 'zlib';
 import { parsePricebookXml, resolvePricebookFilename, resolvePricebookDir } from '../core/pricebook';
 import type { PricebookLoadResult } from '../core/pricebook';
-import { buildSettingGroupsUrl, extractLoaSettings, settingsDateStamp } from '../core/settingGroups';
+import { buildSettingGroupsUrl, extractLoaSettings, extractSetting, settingsDateStamp } from '../core/settingGroups';
 import type { SettingsFetchResult } from '../core/settingGroups';
 import { parseQuickKeys, orderQuickKeyFiles, resolveQuickKeyDir } from '../core/quickkeys';
 import type { QuickKeyFile, QuickKeyLoadResult } from '../core/quickkeys';
@@ -342,8 +342,10 @@ function registerEmulatorIpc(getWindow: () => BrowserWindow | null): void {
         const json = JSON.parse(await res.text());
         const settings = extractLoaSettings(json);
         const pricebookUrl = settings['pricebook.url'] ?? '';
+        const registerClassName = extractSetting(json, 'register.className');
         console.log(`[Settings]   ${Object.keys(settings).length} loa-* settings; pricebook.url=${pricebookUrl || '(none)'}`);
-        return { ok: true, settings, pricebookUrl };
+        console.log(`[Settings]   register.className=${registerClassName || '(none)'}`);
+        return { ok: true, settings, pricebookUrl, registerClassName };
       } catch (err) {
         const aborted = err instanceof Error && err.name === 'AbortError';
         const error = aborted

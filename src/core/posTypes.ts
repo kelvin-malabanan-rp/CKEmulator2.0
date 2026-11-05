@@ -185,6 +185,45 @@ export function baseRegisterType(type: RegisterType): RegisterType {
 }
 
 /**
+ * The legacy register implementation (the portal's `register.className`
+ * setting, which liftck_player Main.java reads to pick its Register) → the
+ * emulator's register type. Keyed by simple class name. Radiant6Register is the
+ * US class; Canada ships its own Radiant6CanadaRegister. Registers the emulator
+ * can't drive (Gilbarco, ModRs, Ruby2, Radiant5, RadiantRPos) are absent.
+ */
+const REGISTER_TYPE_BY_CLASS: Readonly<Record<string, RegisterType>> = {
+  Radiant6CanadaRegister: 'radiant6-canada',
+  Radiant6Register: 'radiant6-us',
+  BullochRegister: 'bulloch',
+  TopazRegister: 'verifone-topaz',
+  OctaneRegister: 'octane',
+};
+
+/** Register type for a `register.className` value, or null when the emulator has none. */
+export function registerTypeForClassName(className: string | undefined): RegisterType | null {
+  const simple = (className ?? '').trim().split('.').pop() ?? '';
+  return REGISTER_TYPE_BY_CLASS[simple] ?? null;
+}
+
+/**
+ * Switch a config to another register type, re-deriving everything tied to it.
+ * scannerPort is cleared first so a stale Topaz port can't survive a switch to
+ * a scanner-less type; host follows the type's default. loaEnv is re-resolved
+ * because the two LOA players ship to different environments — keeping the old
+ * one could name a build that doesn't exist for the newly selected player.
+ */
+export function withRegisterType(config: PosConfig, registerType: RegisterType): PosConfig {
+  return {
+    ...config,
+    registerType,
+    host: hostForRegisterType(registerType),
+    scannerPort: undefined,
+    loaEnv: defaultLoaEnvForRegisterType(registerType, config.loaEnv),
+    ...portsForRegisterType(registerType),
+  };
+}
+
+/**
  * Per-register-type defaults (the ports the player listens on). Radiant6
  * Canada and US use VJ 5438 / pole 5439; Bulloch is pole-primary on 5440
  * (legacy `debug1.properties`: "Bulloch typically listens on TCP 5440").
@@ -330,6 +369,16 @@ export interface PlayerConfig {
    */
   operatorId: string;
   operatorName: string;
+  /**
+   * Hard-coded `pricebook.url` override. Blank = use the player's own setting
+   * (portal setting groups, else derived from init.url).
+   */
+  pricebookUrl: string;
+  /**
+   * `pricebook.devLocation` override — the locationCode sent on the pricebook
+   * download in place of the registered player's. Blank = the player's own.
+   */
+  pricebookDevLocation: string;
 }
 
 export const DEFAULT_PLAYER_CONFIG: PlayerConfig = {
@@ -340,6 +389,8 @@ export const DEFAULT_PLAYER_CONFIG: PlayerConfig = {
   // install lands on the same cashier the legacy emulator signed on as.
   operatorId: '12399',
   operatorName: 'TimC',
+  pricebookUrl: '',
+  pricebookDevLocation: '',
 };
 
 /** Apply defaults + trim to a partial player config (e.g. from persisted storage). */
@@ -357,6 +408,8 @@ export function normalizePlayerConfig(partial: Partial<PlayerConfig> | null | un
     operatorId: trimmed(partial?.operatorId, DEFAULT_PLAYER_CONFIG.operatorId) || DEFAULT_PLAYER_CONFIG.operatorId,
     operatorName:
       trimmed(partial?.operatorName, DEFAULT_PLAYER_CONFIG.operatorName) || DEFAULT_PLAYER_CONFIG.operatorName,
+    pricebookUrl: trimmed(partial?.pricebookUrl, DEFAULT_PLAYER_CONFIG.pricebookUrl),
+    pricebookDevLocation: trimmed(partial?.pricebookDevLocation, DEFAULT_PLAYER_CONFIG.pricebookDevLocation),
   };
 }
 
