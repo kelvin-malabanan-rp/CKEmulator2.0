@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { isInteractiveTemplate, type AdItem } from '../../../core/adTriggers';
+import { useEffect, useState, type KeyboardEvent } from 'react';
+import { adCardMode, isInteractiveTemplate, type AdItem } from '../../../core/adTriggers';
 import { scenarioForAd, type ScenarioParams } from '../../../core/scenarios';
 import type { useEmulator } from '../useEmulator';
 import type { useScenarioRunner } from '../useScenarioRunner';
@@ -27,6 +27,9 @@ export function TriggersCompleters({
     ad: { id: string; name: string };
     kind: 'triggers' | 'completers';
     items: AdItem[];
+    /** True when the ad was just fired — by a trigger scan, or by clicking a
+     *  trigger-less card. The caption says so, so the list is never a mystery. */
+    fired: boolean;
   } | null>(null);
   const [busy, setBusy] = useState<string | null>(null); // "<id>:triggers" | "<id>:completers"
   const ads = e.adManifest;
@@ -62,14 +65,20 @@ export function TriggersCompleters({
     return d.completers.length > 0 ? 'has' : 'none';
   };
 
-  const open = async (ad: { id: string; name: string }, kind: 'triggers' | 'completers'): Promise<void> => {
+  const open = async (
+    ad: { id: string; name: string },
+    kind: 'triggers' | 'completers',
+    fired = false,
+  ): Promise<void> => {
     setBusy(`${ad.id}:${kind}`);
     const detail = e.adDetails[ad.id] ?? (await e.loadAdDetail(ad.id));
     setBusy(null);
     const items = !detail ? [] : kind === 'triggers' ? detail.triggers : detail.completers;
-    // No completer modal for an ad with no completers.
-    if (kind === 'completers' && items.length === 0) return;
-    setModal({ ad, kind, items });
+    // No completer modal for an ad with no completers — except when the card
+    // itself fired the ad, where the modal is the only feedback the click gets
+    // (a click that silently does nothing reads as a dead card).
+    if (kind === 'completers' && items.length === 0 && !fired) return;
+    setModal({ ad, kind, items, fired });
   };
 
   // Scanning a trigger fires the ad → close the triggers modal and surface that
@@ -85,7 +94,7 @@ export function TriggersCompleters({
         setModal(null);
         return;
       }
-      setModal({ ad: modal.ad, kind: 'completers', items: completers });
+      setModal({ ad: modal.ad, kind: 'completers', items: completers, fired: true });
     } else {
       // Completer selected → close the modal.
       setModal(null);
@@ -124,6 +133,12 @@ export function TriggersCompleters({
           <span className="tclegenditem" title="Interactive microsite ad (has figs) — the left accent bar marks these">
             <span className="tcaccentbar" /> interactive
           </span>
+          <span
+            className="tclegenditem"
+            title="Ad with no trigger items — the card itself is the trigger; click it to fire the ad and pick a completer"
+          >
+            <span className="tcselfmark">▸</span> no triggers — click the card
+          </span>
         </div>
       )}
 
@@ -135,11 +150,34 @@ export function TriggersCompleters({
               const template = detail?.template ?? '';
               const interactive = isInteractiveTemplate(template);
               const silent = detail?.silentCapable && detail.triggers.length > 0 && e.config.registerType !== 'bulloch';
+              // A trigger-less ad has no UPC to scan, so the card is the trigger:
+              // clicking it fires the ad and opens its completers directly.
+              const selfTrigger = adCardMode(detail) === 'selfTrigger';
+              const interactiveTitle = interactive
+                ? 'Interactive ad — the left accent bar marks interactive microsite ads'
+                : undefined;
               return (
                 <div
                   key={ad.id || ad.name}
-                  className={`tccard${interactive ? ' interactive' : ''}`}
-                  title={interactive ? 'Interactive ad — the left accent bar marks interactive microsite ads' : undefined}
+                  className={`tccard${interactive ? ' interactive' : ''}${selfTrigger ? ' selftrigger' : ''}`}
+                  title={
+                    selfTrigger
+                      ? 'No trigger items — click the card to fire this ad and see its completers'
+                      : interactiveTitle
+                  }
+                  {...(selfTrigger
+                    ? {
+                        role: 'button',
+                        tabIndex: 0,
+                        onClick: () => void open(ad, 'completers', true),
+                        onKeyDown: (ev: KeyboardEvent): void => {
+                          if (ev.key === 'Enter' || ev.key === ' ') {
+                            ev.preventDefault();
+                            void open(ad, 'completers', true);
+                          }
+                        },
+                      }
+                    : {})}
                 >
                   <div className="tccardhead">
                     <span
@@ -161,19 +199,26 @@ export function TriggersCompleters({
                   <span className="tccardtype" title={interactive ? 'Interactive microsite ad (has figs)' : 'Plain image/video ad'}>
                     {template || 'Ad'}
                   </span>
-                  <div className="tccardbtns">
-                    <button className="tcbtn" disabled={busy !== null} onClick={() => void open(ad, 'triggers')}>
-                      {busy === `${ad.id}:triggers` ? '…' : 'Triggers'}
-                    </button>
-                    <button
-                      className="tcbtn"
-                      disabled={busy !== null || cs === 'none'}
-                      title={cs === 'none' ? 'No completers' : undefined}
-                      onClick={() => void open(ad, 'completers')}
-                    >
-                      {busy === `${ad.id}:completers` ? '…' : 'Completers'}
-                    </button>
-                  </div>
+                  {/* Trigger-less ads drop both buttons — the card is the trigger. */}
+                  {selfTrigger ? (
+                    <span className="tccardhint">
+                      {busy === `${ad.id}:completers` ? 'Opening…' : 'No triggers — click to fire →'}
+                    </span>
+                  ) : (
+                    <div className="tccardbtns">
+                      <button className="tcbtn" disabled={busy !== null} onClick={() => void open(ad, 'triggers')}>
+                        {busy === `${ad.id}:triggers` ? '…' : 'Triggers'}
+                      </button>
+                      <button
+                        className="tcbtn"
+                        disabled={busy !== null || cs === 'none'}
+                        title={cs === 'none' ? 'No completers' : undefined}
+                        onClick={() => void open(ad, 'completers')}
+                      >
+                        {busy === `${ad.id}:completers` ? '…' : 'Completers'}
+                      </button>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -197,11 +242,29 @@ export function TriggersCompleters({
         <div className="tcmodal" onClick={() => setModal(null)}>
           <div className="tcmodalbox" onClick={(ev) => ev.stopPropagation()}>
             <div className="tcmodalhead">
-              <b>{modal.kind === 'triggers' ? 'Triggers' : 'Completers'} — {modal.ad.name}</b>
+              <b>
+                <span className={`tcmodalkind ${modal.kind}`}>
+                  {modal.kind === 'triggers' ? 'TRIGGERS' : 'COMPLETERS'}
+                </span>
+                {modal.ad.name}
+              </b>
               <button onClick={() => setModal(null)}>×</button>
             </div>
+            {/* Say which list this is and why it's open — a bare item grid gives
+                no clue whether these fire the ad or complete it. */}
+            <small className="hint">
+              {modal.kind === 'triggers'
+                ? 'Items that FIRE this ad. Click one to scan it — its completers open next.'
+                : modal.fired
+                  ? 'Ad fired. These items COMPLETE its offer — click one to scan it into the basket.'
+                  : 'Items that COMPLETE this ad’s offer. Click one to scan it into the basket.'}
+            </small>
             {modal.items.length === 0 ? (
-              <small className="hint">{modal.kind === 'triggers' ? 'No triggers.' : 'No completers.'}</small>
+              <small className="hint">
+                {modal.kind === 'triggers'
+                  ? 'No trigger items on this ad.'
+                  : 'This ad has no completer items either — nothing to scan.'}
+              </small>
             ) : (
               <>
                 <div className="tcitems">
@@ -234,11 +297,6 @@ export function TriggersCompleters({
                 )}
               </>
             )}
-            <small className="hint">
-              {modal.kind === 'triggers'
-                ? 'Click a trigger to scan it — then its completers appear.'
-                : 'Click a completer to scan it into the basket.'}
-            </small>
           </div>
         </div>
       )}

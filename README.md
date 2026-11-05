@@ -197,8 +197,14 @@ No external `liftck_player` checkout is required — the emulator ships its own:
   (has completers?), the **template name** with a blue accent for interactive
   (microsite/figs) templates, and **Triggers** / **Completers** buttons. Clicking
   a trigger scans it (with its real description) then opens the ad's completers;
-  selecting a completer scans it. The modal auto-closes when CK Player 2.0 acts
-  on the offer (completer inject) or the transaction ends.
+  selecting a completer scans it. An ad with **no trigger items** has no UPC to
+  scan, so it drops both buttons and the **card itself is the trigger** — click
+  (or focus + Enter/Space) it to fire the ad and go straight to its completers
+  (trigger-less ads with no completers either open the same modal, which says
+  there is nothing to scan). Every modal is labelled with a **TRIGGERS** /
+  **COMPLETERS** chip plus a line saying whether those items fire the ad or
+  complete its offer. The modal auto-closes when CK Player 2.0 acts on the offer
+  (completer inject) or the transaction ends.
 - **Scenarios** — one button per canned end-to-end flow for the current register
   type, with a live step ticker while a run is active and a
   **PASS/FAIL/CANCELLED** verdict afterwards. A params row sets the loyalty card

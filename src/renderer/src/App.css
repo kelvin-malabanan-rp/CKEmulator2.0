@@ -416,6 +416,14 @@ h3 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing
 .tcgrid { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: repeat(3, minmax(0, 1fr)); gap: 6px; overflow: hidden; }
 .tccard { display: flex; flex-direction: column; gap: 3px; background: var(--control-bg); border: 1px solid var(--border); border-radius: var(--r-card); padding: 7px 8px; overflow: hidden; }
 .tccard.interactive { border-left: 3px solid var(--accent); }
+/* A trigger-less ad has no buttons — the whole card is the trigger, so it has to
+   carry the affordance the buttons used to: pointer, hover and keyboard focus. */
+.tccard.selftrigger { cursor: pointer; }
+.tccard.selftrigger:hover,
+.tccard.selftrigger:focus-visible { background: var(--control-hover); border-color: var(--accent); outline: none; }
+.tccardhint { margin-top: auto; font-size: 10px; color: var(--text-muted); }
+.tccard.selftrigger .tccardhint { color: var(--accent); }
+.tcselfmark { color: var(--accent); font-size: 11px; line-height: 1; }
 .tccardhead { display: flex; align-items: center; gap: 6px; min-width: 0; }
 /* Name and subtitle need a clear weight+size gap so the list scans fast: the name
    is the bold 13px anchor (2-line clamp + a native title tooltip carry the full
@@ -433,7 +441,12 @@ h3 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing
 .tcmodal { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; z-index: 100; }
 .tcmodalbox { background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--r-card); padding: 14px; width: 420px; max-width: 90vw; max-height: 70vh; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 12px 40px rgba(0,0,0,.5); }
 .tcmodalhead { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.tcmodalhead b { font-size: 14px; color: var(--text); }
+.tcmodalhead b { font-size: 14px; color: var(--text); display: inline-flex; align-items: center; gap: 7px; min-width: 0; }
+/* The kind chip is the modal's whole point of orientation: triggers fire the ad
+   (accent), completers complete its offer (green, matching the card dot). */
+.tcmodalkind { flex: 0 0 auto; font-size: 9px; font-weight: 700; letter-spacing: .06em; border-radius: 3px; padding: 2px 5px; }
+.tcmodalkind.triggers { color: var(--accent); border: 1px solid var(--accent); }
+.tcmodalkind.completers { color: var(--success); border: 1px solid var(--success); }
 .tcmodalhead button { background: var(--control-bg); color: var(--text); border: 1px solid var(--border); border-radius: var(--r-ctrl); width: 26px; height: 26px; cursor: pointer; font-size: 14px; line-height: 1; }
 .tcitems { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .tcitem { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; background: var(--control-bg); border: 1px solid var(--border); border-radius: var(--r-ctrl); padding: 9px 10px; color: var(--text); cursor: pointer; text-align: left; }
