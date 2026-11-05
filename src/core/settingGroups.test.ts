@@ -3,6 +3,7 @@ import {
   settingsDateStamp,
   buildSettingGroupsUrl,
   extractLoaSettings,
+  extractSetting,
   type SettingGroupsResponse,
 } from './settingGroups';
 
@@ -64,5 +65,23 @@ describe('extractLoaSettings', () => {
     expect(extractLoaSettings(null)).toEqual({});
     expect(extractLoaSettings({})).toEqual({});
     expect(extractLoaSettings({ data: [{ settings: null }, {}] })).toEqual({});
+  });
+});
+
+describe('extractSetting', () => {
+  it('returns the newest un-prefixed setting by exact name', () => {
+    const json = {
+      data: [
+        { settings: [{ name: 'loa-register.className', value: 'LOA' }] },
+        { settings: [{ name: 'register.className', value: 'com.liftrmt.player.register.octane.OctaneRegister' }] },
+        { settings: [{ name: 'register.className', value: 'OLD' }] },
+      ],
+    };
+    expect(extractSetting(json, 'register.className')).toBe('com.liftrmt.player.register.octane.OctaneRegister');
+  });
+
+  it('returns blank when absent', () => {
+    expect(extractSetting({ data: [] }, 'register.className')).toBe('');
+    expect(extractSetting(null, 'register.className')).toBe('');
   });
 });

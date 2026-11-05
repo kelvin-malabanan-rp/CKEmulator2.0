@@ -17,6 +17,8 @@ import {
   LOA_TARGETS,
   LOA_ENV_LABELS,
   LOL_VM_HOST,
+  registerTypeForClassName,
+  withRegisterType,
 } from './posTypes';
 import { stageForUrl } from './globalInit';
 
@@ -42,6 +44,20 @@ describe('normalizePlayerConfig', () => {
     expect(normalizePlayerConfig({ operatorId: '  40123  ', operatorName: '  Dana  ' })).toMatchObject({
       operatorId: '40123',
       operatorName: 'Dana',
+    });
+  });
+
+  it('defaults the pricebook overrides to blank and trims them', () => {
+    expect(DEFAULT_PLAYER_CONFIG.pricebookUrl).toBe('');
+    expect(DEFAULT_PLAYER_CONFIG.pricebookDevLocation).toBe('');
+    expect(
+      normalizePlayerConfig({
+        pricebookUrl: ' https://player.eu-e2e.circlekliftdev.com/api/lift/ie/pricebook/ ',
+        pricebookDevLocation: ' ie-30600 ',
+      }),
+    ).toMatchObject({
+      pricebookUrl: 'https://player.eu-e2e.circlekliftdev.com/api/lift/ie/pricebook/',
+      pricebookDevLocation: 'ie-30600',
     });
   });
 
@@ -363,5 +379,33 @@ describe('CKP2.0 Mashgin mode — the standalone boot contract', () => {
     for (const t of LOA_TARGETS.filter((t) => t.registerType !== 'ckp2-loa')) {
       expect(t.entryUrl, t.registerType).not.toContain('host=standalone');
     }
+  });
+});
+
+describe('registerTypeForClassName', () => {
+  it('maps the legacy register.className to the emulator register type', () => {
+    expect(registerTypeForClassName('com.liftrmt.player.register.octane.OctaneRegister')).toBe('octane');
+    expect(registerTypeForClassName('com.liftrmt.player.register.radiant6.canada.Radiant6CanadaRegister')).toBe(
+      'radiant6-canada',
+    );
+    expect(registerTypeForClassName('com.liftrmt.player.register.radiant6.Radiant6Register')).toBe('radiant6-us');
+    expect(registerTypeForClassName('com.liftrmt.player.register.bulloch.BullochRegister')).toBe('bulloch');
+    expect(registerTypeForClassName(' com.liftrmt.player.register.verifone.TopazRegister ')).toBe('verifone-topaz');
+  });
+
+  it('returns null for registers the emulator cannot drive, and for blanks', () => {
+    expect(registerTypeForClassName('com.liftrmt.player.register.gilbarco.GilbarcoRegister')).toBeNull();
+    expect(registerTypeForClassName('')).toBeNull();
+    expect(registerTypeForClassName(undefined)).toBeNull();
+  });
+});
+
+describe('withRegisterType', () => {
+  it('re-derives ports and host, and drops a stale Topaz scanner port', () => {
+    const topaz = withRegisterType(DEFAULT_POS_CONFIG, 'verifone-topaz');
+    expect(topaz.scannerPort).toBeDefined();
+    const r6 = withRegisterType(topaz, 'radiant6-canada');
+    expect(r6).toMatchObject({ registerType: 'radiant6-canada', host: '127.0.0.1', ...portsForRegisterType('radiant6-canada') });
+    expect(r6.scannerPort).toBeUndefined();
   });
 });

@@ -36,6 +36,8 @@ export interface SettingsFetchResult {
   settings: Record<string, string>;
   /** Convenience: the resolved `pricebook.url`, or '' when the portal has none. */
   pricebookUrl?: string;
+  /** The un-prefixed `register.className` (legacy register implementation), or '' when absent. */
+  registerClassName?: string;
   error?: string;
 }
 
@@ -90,4 +92,18 @@ export function extractLoaSettings(json: SettingGroupsResponse | null | undefine
     }
   }
   return out;
+}
+
+/**
+ * Newest value of one setting, matched by its exact (un-prefixed) name — for
+ * player settings such as `register.className` that aren't `loa-` settings.
+ * Groups arrive newest-first, so the first match wins. '' when absent.
+ */
+export function extractSetting(json: SettingGroupsResponse | null | undefined, name: string): string {
+  for (const group of json?.data ?? []) {
+    for (const s of group?.settings ?? []) {
+      if (s?.name === name) return s.value ?? '';
+    }
+  }
+  return '';
 }

@@ -6,6 +6,9 @@ import {
   normalizePlayerConfig,
   isLoaRegisterType,
   isOctaneRegisterType,
+  baseRegisterType,
+  registerTypeForClassName,
+  withRegisterType,
   type PosConfig,
   type PlayerConfig,
   type RegisterType,
@@ -633,7 +636,9 @@ export function useEmulator(): {
   // guess. Runs against the main process, which fetches + decompresses + parses.
   const downloadFor = useCallback(
     async (gi: GlobalInitConfig, urlOverride?: string): Promise<void> => {
+      // Config overrides (pricebook.url / pricebook.devLocation) beat the player's own settings.
       const pricebookUrl =
+        playerConfig.pricebookUrl ||
         (urlOverride && urlOverride.trim()) ||
         (settingsPricebookUrl && settingsPricebookUrl.trim()) ||
         resolvePricebookUrl(gi.endpoints, gi.tenant);
@@ -641,7 +646,11 @@ export function useEmulator(): {
         logSys('No pricebook URL available for this player (missing pricebook.url / init.url).');
         return;
       }
-      logSys(`Downloading pricebook for ${gi.playerCode} (tenant ${gi.tenant})…`);
+      const locationCode = playerConfig.pricebookDevLocation || gi.locationCode;
+      logSys(
+        `Downloading pricebook for ${gi.playerCode} (tenant ${gi.tenant}, location ${locationCode})` +
+          `${playerConfig.pricebookUrl ? ` from override ${pricebookUrl}` : ''}…`,
+      );
       setPricebookBusy(true);
       let result: PricebookLoadResult;
       try {
@@ -649,7 +658,7 @@ export function useEmulator(): {
           pricebookUrl,
           playerCode: gi.playerCode,
           playerKey: gi.playerKey || playerConfig.playerKey,
-          locationCode: gi.locationCode,
+          locationCode,
         });
       } catch (err) {
         // e.g. the main process predates this IPC handler — restart `npm run dev`.
@@ -672,7 +681,7 @@ export function useEmulator(): {
         logSys(`Pricebook download failed: ${result.error}`);
       }
     },
-    [settingsPricebookUrl, playerConfig.playerKey, logSys],
+    [settingsPricebookUrl, playerConfig.playerKey, playerConfig.pricebookUrl, playerConfig.pricebookDevLocation, logSys],
   );
 
   // Manual (re-)download button — always (re-)downloads for the current player.
@@ -683,6 +692,26 @@ export function useEmulator(): {
     }
     await downloadFor(globalInit);
   }, [globalInit, downloadFor, logSys]);
+
+  // Auto-select the register type from the player's own `register.className`
+  // (the setting legacy Main.java picks its Register from). LOA modes are a
+  // deliberate choice of how to drive the player, so they're never overridden;
+  // the LoL Topaz preset is kept when the player is Topaz (same protocol).
+  const applyDetectedRegisterType = useCallback(
+    (className: string | undefined): void => {
+      const detected = registerTypeForClassName(className);
+      if (!detected) {
+        if (className) logSys(`Register type: no emulator register for ${className} — keeping the current one.`);
+        return;
+      }
+      setConfig((cur) => {
+        if (isLoaRegisterType(cur.registerType) || baseRegisterType(cur.registerType) === detected) return cur;
+        logSys(`Register type: auto-detected ${detected} from register.className=${className}.`);
+        return withRegisterType(cur, detected);
+      });
+    },
+    [logSys],
+  );
 
   // Post-registration chain: fetch the portal setting groups to learn the real
   // pricebook.url (GlobalInit omits it), then auto-download the pricebook. Both
@@ -702,6 +731,7 @@ export function useEmulator(): {
             playerCode: gi.playerCode,
             playerKey: gi.playerKey || playerConfig.playerKey,
           });
+          if (s.ok) applyDetectedRegisterType(s.registerClassName);
           if (s.ok && s.pricebookUrl) {
             pricebookUrl = s.pricebookUrl;
             setSettingsPricebookUrl(pricebookUrl);
@@ -719,7 +749,7 @@ export function useEmulator(): {
       }
       await downloadFor(gi, pricebookUrl);
     },
-    [downloadFor, playerConfig.playerKey, logSys],
+    [downloadFor, applyDetectedRegisterType, playerConfig.playerKey, logSys],
   );
 
   // Announce the derived dialect/currency once per tenant, so the wire format
