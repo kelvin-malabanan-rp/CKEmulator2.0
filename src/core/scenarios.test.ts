@@ -52,9 +52,9 @@ describe('builtinScenarios', () => {
     expect('minAge' in scans[1]).toBe(false); // the follow-up item is unrestricted
   });
 
-  it('returns 13 scenarios, each with a name, description and non-empty registerTypes', () => {
+  it('returns 14 scenarios, each with a name, description and non-empty registerTypes', () => {
     const all = builtinScenarios(params);
-    expect(all.length).toBe(13);
+    expect(all.length).toBe(14);
     for (const s of all) {
       expect(s.name.length).toBeGreaterThan(0);
       expect(s.description.length).toBeGreaterThan(0);
@@ -216,6 +216,16 @@ describe('builtinScenarios', () => {
     if (manualWait.kind === 'waitForInject' && silentWait.kind === 'waitForInject') {
       expect(manualWait.timeoutMs).toBeGreaterThan(silentWait.timeoutMs);
     }
+  });
+
+  it('cross-ad-void rings Test Ad 1, voids, rings Test Ad 2, voids, then Test Ad 1 alone (LIFT-3622)', () => {
+    const s = builtinScenarios(params).find((x) => x.id === 'cross-ad-void')!;
+    expect(s.registerTypes).toContain('octane');
+    const kinds = s.steps.filter((st) => st.kind !== 'wait').map((st) => st.kind);
+    expect(kinds).toEqual(['scan', 'voidTicket', 'scan', 'voidTicket', 'scan', 'tender']);
+    const codes = s.steps.flatMap((st) => (st.kind === 'scan' ? [st.code] : []));
+    // Fixed Test Ad items, never the UI's generic item fields
+    expect(codes).toEqual(['8710622513117', '5397138091211', '8710622513117']);
   });
 
   it('suspend-resume suspends before resuming', () => {

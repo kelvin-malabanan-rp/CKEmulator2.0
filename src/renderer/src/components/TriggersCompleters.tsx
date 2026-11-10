@@ -1,8 +1,9 @@
-import { useEffect, useState, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useState, type KeyboardEvent } from 'react';
 import { adCardMode, isInteractiveTemplate, type AdItem } from '../../../core/adTriggers';
 import { scenarioForAd, type ScenarioParams } from '../../../core/scenarios';
 import type { useEmulator } from '../useEmulator';
 import type { useScenarioRunner } from '../useScenarioRunner';
+import { filterAds } from '../adFilter';
 import { IconRefresh } from './icons';
 
 /**
@@ -32,12 +33,20 @@ export function TriggersCompleters({
     fired: boolean;
   } | null>(null);
   const [busy, setBusy] = useState<string | null>(null); // "<id>:triggers" | "<id>:completers"
+  const [query, setQuery] = useState('');
   const ads = e.adManifest;
+  // Details are background-prefetched by loadAds; read them here for indicators.
+  const adDetails = e.adDetails;
+  const loadedCount = Object.keys(adDetails).length;
+  // Search by ad name, id, or trigger/completer UPC (UPCs once details load).
+  const searching = query.trim() !== '';
+  const shown = useMemo(() => filterAds(ads, adDetails, query), [ads, adDetails, query]);
+  useEffect(() => setPage(0), [query]);
   // 3×3 grid in every layout (in LOA it mirrors the Quick Keys grid beside it).
   const perPage = 9;
-  const pageCount = Math.max(1, Math.ceil(ads.length / perPage));
+  const pageCount = Math.max(1, Math.ceil(shown.length / perPage));
   const safePage = Math.min(page, pageCount - 1);
-  const current = ads.slice(safePage * perPage, safePage * perPage + perPage);
+  const current = shown.slice(safePage * perPage, safePage * perPage + perPage);
 
   // Modal item grid pagination (reset to page 0 whenever the modal changes).
   const MODAL_PER_PAGE = 12; // 2 columns × 6 rows
@@ -45,10 +54,6 @@ export function TriggersCompleters({
   const modalSafePage = Math.min(modalPage, modalPageCount - 1);
   const modalItems = modal ? modal.items.slice(modalSafePage * MODAL_PER_PAGE, modalSafePage * MODAL_PER_PAGE + MODAL_PER_PAGE) : [];
   useEffect(() => setModalPage(0), [modal]);
-
-  // Details are background-prefetched by loadAds; read them here for indicators.
-  const adDetails = e.adDetails;
-  const loadedCount = Object.keys(adDetails).length;
 
   // Close the modal once CKP2 acts on the offer: a completer inject from the
   // player, or the transaction ending/resetting (tx advances on tender/void).
@@ -143,6 +148,23 @@ export function TriggersCompleters({
       )}
 
       {ads.length > 0 && (
+        <div className="qksearch">
+          <input
+            type="text"
+            placeholder="Search ad name, id or UPC…"
+            value={query}
+            onChange={(ev) => setQuery(ev.target.value)}
+          />
+          {query !== '' && (
+            <button className="qkclear" title="Clear search" onClick={() => setQuery('')}>
+              ×
+            </button>
+          )}
+        </div>
+      )}
+      {searching && shown.length === 0 && <div className="qkempty">No matching ads</div>}
+
+      {shown.length > 0 && (
         <div className="tcgrid">
           {current.map((ad) => {
               const cs = completerState(ad.id);
@@ -224,7 +246,7 @@ export function TriggersCompleters({
             })}
         </div>
       )}
-      {ads.length > 0 && pageCount > 1 && (
+      {shown.length > 0 && pageCount > 1 && (
         <div className="qkpager">
           <button disabled={safePage === 0} onClick={() => setPage(safePage - 1)}>
             ‹

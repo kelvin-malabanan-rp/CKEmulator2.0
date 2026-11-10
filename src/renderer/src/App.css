@@ -393,7 +393,8 @@ h3 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing
 .jumplatest:hover { background: var(--accent-hover); }
 
 /* Ads (Triggers & Completers) -------------------------------------------- */
-.tc { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; overflow: hidden; }
+/* padding/negative margin: room for the 2px focus ring that overflow:hidden would clip (see .configtab). */
+.tc { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; overflow: hidden; padding: 3px; margin: -3px; }
 .tcctl { display: flex; align-items: center; gap: 8px; }
 /* Load ads is a setup/secondary action — OUTLINED accent, matching Connect, so
    neither competes with the solid-amber Cash tender buttons. A leading refresh
