@@ -63,6 +63,10 @@ export interface ScenarioParams {
   demoCompleter?: { code: string; description?: string };
 }
 
+/** LIFT-3622 eu-e2e (ie) trigger items: "Test Ad 1" (ad 2023788) and "Test Ad 2" (ad 2023499). */
+export const LIFT_3622_TEST_AD_1_TRIGGER = '8710622513117';
+export const LIFT_3622_TEST_AD_2_TRIGGER = '5397138091211';
+
 /** How long a scenario waits for the player to silently inject a completer. */
 const INJECT_TIMEOUT_MS = 15_000;
 /** How long a scenario waits for the cashier to manually tap the offer. */
@@ -287,6 +291,26 @@ export function builtinScenarios(p: ScenarioParams): Scenario[] {
         { kind: 'scan', code: p.itemCode },
         gap,
         { kind: 'voidTicket' },
+      ],
+    },
+    {
+      id: 'cross-ad-void',
+      name: 'Test Ad 1 / Test Ad 2 after void (LIFT-3622)',
+      description:
+        'Ring "Test Ad 1"\'s trigger and void with its offer still open, ring "Test Ad 2"\'s trigger in a fresh basket and void, then ring Test Ad 1\'s trigger alone and tender — only Test Ad 1 may show in the last basket, and the cashier must never show a voided basket\'s offer.',
+      registerTypes: ['radiant6-canada', 'radiant6-us', 'bulloch', 'verifone-topaz', 'octane'],
+      steps: [
+        { kind: 'scan', code: LIFT_3622_TEST_AD_1_TRIGGER },
+        gap,
+        { kind: 'voidTicket' },
+        gap,
+        { kind: 'scan', code: LIFT_3622_TEST_AD_2_TRIGGER },
+        gap,
+        { kind: 'voidTicket' },
+        gap,
+        { kind: 'scan', code: LIFT_3622_TEST_AD_1_TRIGGER },
+        gap,
+        { kind: 'tender', tenderKind: 'cash-exact' },
       ],
     },
     {
